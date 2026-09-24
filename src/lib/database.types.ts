@@ -76,6 +76,82 @@ export type Database = {
           },
         ]
       }
+      pitches: {
+        Row: {
+          asset_type: Database["public"]["Enums"]["asset_type"]
+          created_at: string
+          created_by: string | null
+          decided_at: string | null
+          decided_by: string | null
+          exit_trigger: string
+          id: string
+          key_risk: string
+          objective_id: string | null
+          sources: string
+          stage: Database["public"]["Enums"]["pitch_stage"]
+          team_id: string
+          thesis: string
+          ticker: string
+          updated_at: string
+        }
+        Insert: {
+          asset_type?: Database["public"]["Enums"]["asset_type"]
+          created_at?: string
+          created_by?: string | null
+          decided_at?: string | null
+          decided_by?: string | null
+          exit_trigger?: string
+          id?: string
+          key_risk?: string
+          objective_id?: string | null
+          sources?: string
+          stage?: Database["public"]["Enums"]["pitch_stage"]
+          team_id: string
+          thesis: string
+          ticker: string
+          updated_at?: string
+        }
+        Update: {
+          asset_type?: Database["public"]["Enums"]["asset_type"]
+          created_at?: string
+          created_by?: string | null
+          decided_at?: string | null
+          decided_by?: string | null
+          exit_trigger?: string
+          id?: string
+          key_risk?: string
+          objective_id?: string | null
+          sources?: string
+          stage?: Database["public"]["Enums"]["pitch_stage"]
+          team_id?: string
+          thesis?: string
+          ticker?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pitches_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pitches_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pitches_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           active: boolean
@@ -179,9 +255,158 @@ export type Database = {
         }
         Relationships: []
       }
+      trades: {
+        Row: {
+          created_at: string
+          id: string
+          pitch_id: string | null
+          placed_by: string | null
+          price: number
+          quantity: number
+          rationale: string
+          side: Database["public"]["Enums"]["trade_side"]
+          team_id: string
+          ticker: string
+          trade_date: string
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          pitch_id?: string | null
+          placed_by?: string | null
+          price: number
+          quantity: number
+          rationale: string
+          side: Database["public"]["Enums"]["trade_side"]
+          team_id: string
+          ticker: string
+          trade_date?: string
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          pitch_id?: string | null
+          placed_by?: string | null
+          price?: number
+          quantity?: number
+          rationale?: string
+          side?: Database["public"]["Enums"]["trade_side"]
+          team_id?: string
+          ticker?: string
+          trade_date?: string
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trades_pitch_id_fkey"
+            columns: ["pitch_id"]
+            isOneToOne: false
+            referencedRelation: "pitch_board"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trades_pitch_id_fkey"
+            columns: ["pitch_id"]
+            isOneToOne: false
+            referencedRelation: "pitches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trades_placed_by_fkey"
+            columns: ["placed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trades_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trades_voided_by_fkey"
+            columns: ["voided_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
-      [_ in never]: never
+      pitch_board: {
+        Row: {
+          asset_type: Database["public"]["Enums"]["asset_type"] | null
+          created_at: string | null
+          created_by: string | null
+          decided_at: string | null
+          decided_by: string | null
+          display_stage: string | null
+          exit_trigger: string | null
+          id: string | null
+          key_risk: string | null
+          net_quantity: number | null
+          objective_id: string | null
+          sources: string | null
+          stage: Database["public"]["Enums"]["pitch_stage"] | null
+          team_id: string | null
+          thesis: string | null
+          ticker: string | null
+          trade_count: number | null
+          updated_at: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pitches_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pitches_decided_by_fkey"
+            columns: ["decided_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pitches_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      positions: {
+        Row: {
+          last_price: number | null
+          last_trade_date: string | null
+          quantity: number | null
+          team_id: string | null
+          ticker: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trades_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       admin_invite_tokens: {
@@ -212,9 +437,16 @@ export type Database = {
         }
         Returns: undefined
       }
+      void_trade: {
+        Args: { p_reason: string; p_trade: string }
+        Returns: undefined
+      }
     }
     Enums: {
       app_role: "member" | "leader" | "advisor"
+      asset_type: "stock" | "etf" | "bond" | "fund" | "other"
+      pitch_stage: "idea" | "pitched" | "approved" | "rejected"
+      trade_side: "buy" | "sell"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -346,6 +578,9 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["member", "leader", "advisor"],
+      asset_type: ["stock", "etf", "bond", "fund", "other"],
+      pitch_stage: ["idea", "pitched", "approved", "rejected"],
+      trade_side: ["buy", "sell"],
     },
   },
 } as const

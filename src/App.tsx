@@ -7,6 +7,8 @@ import JoinPage from './pages/JoinPage'
 import LoginPage from './pages/LoginPage'
 import NoAccessPage from './pages/NoAccessPage'
 import RosterPage from './pages/RosterPage'
+import TradeFormPage from './pages/TradeFormPage'
+import TradesPage from './pages/TradesPage'
 
 export default function App() {
   const { path, params } = useLocation()
@@ -22,9 +24,11 @@ export default function App() {
   const { profile } = auth
   const managesRoster = profile.role !== 'member' || profile.is_president
 
-  return (
-    <AppShell>
-      {path === '/roster' && managesRoster ? <RosterPage /> : <HomePage profile={profile} teamName={auth.teamName} />}
-    </AppShell>
-  )
+  let page
+  if (path === '/roster' && managesRoster) page = <RosterPage />
+  else if (path === '/trades') page = <TradesPage />
+  else if (path === '/trades/new') page = <TradeFormPage />
+  else page = <HomePage profile={profile} teamName={auth.teamName} />
+
+  return <AppShell>{page}</AppShell>
 }

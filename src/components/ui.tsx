@@ -1,5 +1,11 @@
 // Small shared building blocks so every screen looks and behaves the same.
-import { useId, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react'
+import {
+  useId,
+  type ButtonHTMLAttributes,
+  type InputHTMLAttributes,
+  type ReactNode,
+  type TextareaHTMLAttributes,
+} from 'react'
 
 export function CenteredPage({ children }: { children: ReactNode }) {
   return (
@@ -41,6 +47,34 @@ export function Field({
         className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base
                    focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900
                    read-only:bg-slate-100 read-only:text-slate-600"
+        {...props}
+      />
+      {hint && (
+        <p id={`${id}-hint`} className="text-xs text-slate-500 mt-1">
+          {hint}
+        </p>
+      )}
+    </div>
+  )
+}
+
+export function TextArea({
+  label,
+  hint,
+  ...props
+}: { label: string; hint?: string } & TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  const id = useId()
+  return (
+    <div>
+      <label htmlFor={id} className="block text-sm font-medium text-slate-700 mb-1">
+        {label}
+      </label>
+      <textarea
+        id={id}
+        rows={4}
+        aria-describedby={hint ? `${id}-hint` : undefined}
+        className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base
+                   focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900"
         {...props}
       />
       {hint && (
