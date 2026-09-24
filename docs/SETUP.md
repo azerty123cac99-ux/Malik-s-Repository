@@ -95,7 +95,11 @@ Dashboard → **Project Settings → API** (may be called **API Keys** / **Data 
 - [ ] Import `Malik-s-Repository`. If it isn't listed, click **Adjust GitHub
       App Permissions** and grant access to that repository.
 - [ ] Framework preset: **Vite** (detected automatically). Leave build settings as they are.
-- [ ] Open **Environment Variables** and add, for all environments:
+- [ ] **If you connected the Supabase–Vercel integration**, it already sets
+      `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`, which the
+      app reads. Don't add the `VITE_` ones as well: if both exist, `VITE_`
+      wins, so a stale `VITE_` value would override the correct one.
+- [ ] **Otherwise**, open **Environment Variables** and add, for all environments:
 
       | Name                     | Value                     |
       |--------------------------|---------------------------|

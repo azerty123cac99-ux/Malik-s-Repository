@@ -15,7 +15,8 @@ export default function LoginPage() {
     const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
     setLoading(false)
     // On success, AuthProvider notices the new session and shows the app.
-    if (error) setError('Wrong email or password.')
+    // A network failure has no HTTP status; don't blame the password for it.
+    if (error) setError(error.status ? 'Wrong email or password.' : "Can't reach the server. Try again in a minute.")
   }
 
   return (

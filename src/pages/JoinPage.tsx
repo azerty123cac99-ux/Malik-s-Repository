@@ -11,14 +11,17 @@ type Invite = { email: string; team_name: string }
 
 export default function JoinPage({ token }: { token: string | null }) {
   const auth = useAuth()
-  // undefined = still checking, null = no valid invite
-  const [invite, setInvite] = useState<Invite | null | undefined>(token ? undefined : null)
+  // undefined = still checking, null = no valid invite, 'unreachable' = the
+  // server couldn't be reached (so we can't tell whether the link is valid)
+  const [invite, setInvite] = useState<Invite | null | 'unreachable' | undefined>(token ? undefined : null)
 
   // Check the link before showing the form, so a dead link gets a clear
   // message instead of a failed signup after the student types a password.
   useEffect(() => {
     if (!token) return
-    supabase.rpc('lookup_invite', { p_token: token }).then(({ data }) => setInvite(data?.[0] ?? null))
+    supabase
+      .rpc('lookup_invite', { p_token: token })
+      .then(({ data, error }) => setInvite(error ? 'unreachable' : (data?.[0] ?? null)))
   }, [token])
 
   if (invite === undefined || auth.status === 'loading') return <Spinner />
@@ -29,6 +32,17 @@ export default function JoinPage({ token }: { token: string | null }) {
       <Card>
         {auth.status === 'ready' || auth.status === 'no-access' ? (
           <SignedInAlready email={auth.status === 'ready' ? auth.profile.email : auth.email} onSignOut={auth.signOut} />
+        ) : invite === 'unreachable' ? (
+          <div className="space-y-4">
+            <h1 className="text-lg font-semibold">Can't reach the server</h1>
+            <Alert>
+              The app couldn't connect to its database, so it can't check this link. Try again in a minute; if it keeps
+              happening, tell the club president (the site may be misconfigured).
+            </Alert>
+            <Button variant="secondary" onClick={() => window.location.reload()}>
+              Try again
+            </Button>
+          </div>
         ) : invite ? (
           <JoinForm invite={invite} token={token!} />
         ) : (
