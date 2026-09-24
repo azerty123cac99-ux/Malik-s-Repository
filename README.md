@@ -27,6 +27,7 @@ Deploying: see [docs/SETUP.md](docs/SETUP.md).
 ## Layout
 
 - `supabase/migrations/` : database tables and privacy rules (RLS), in order
+- `docs/ALL-MIGRATIONS.sql` : all migrations in one file for a fresh project (generated: `npm run db:combine`)
 - `supabase/seed.sql` : 3 demo teams and a placeholder roster (fake emails only; this repo is public)
 - `scripts/seed-users.mjs` : creates demo logins by claiming each invite token, like a real student would
 - `scripts/test-*.mjs` : database tests; sign in as each role and check what it can and can't do

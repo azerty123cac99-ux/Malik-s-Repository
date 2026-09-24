@@ -37,6 +37,12 @@ Pick **one** option and stick to it for all future migrations.
 
 ### Option A: SQL editor (browser only)
 
+**Fresh project (first time):** open `docs/ALL-MIGRATIONS.sql`, copy all of
+it, paste into **SQL Editor → New query → Run**, once. It contains every
+migration in order and runs as a single transaction. Then skip to step 3.
+
+**Later migrations:** run only each new file, as below.
+
 - [ ] In the repo, open each file in `supabase/migrations/` **in filename order**
       and copy its full contents.
 - [ ] Supabase dashboard → **SQL Editor** → **New query** → paste → **Run**.
