@@ -2,6 +2,7 @@
 // as real users. Runs after test-rls.mjs (npm run test:rls runs both).
 import { TEAM, admin, as, check, expect, finish, section } from './test-helpers.mjs'
 import { seedUsers } from './seed-users.mjs'
+import { positionPercentAfterEachTrade } from '../src/lib/portfolio.ts'
 
 await seedUsers()
 
@@ -12,6 +13,19 @@ const a5 = await as('a5@demo.test') // Team A member (gets revoked)
 const samantha = await as('samantha@demo.test') // Team B leader
 const b2 = await as('b2@demo.test') // Team B member
 const walsworth = await as('walsworth@demo.test') // advisor
+
+// Each team needs a client objective before anything can be "pitched".
+async function objective(leader, team) {
+  const { data, error } = await leader.from('client_objectives').insert({ team_id: team, text: 'Long-term growth' }).select().single()
+  if (error) throw new Error(error.message)
+  return data.id
+}
+const OBJ = {
+  A: await objective(malik, TEAM.A),
+  B: await objective(samantha, TEAM.B),
+  C: await objective(await as('gabe@demo.test'), TEAM.C),
+}
+const pitchFields = (team) => ({ objective_id: OBJ[team], key_risk: 'Valuation', exit_trigger: 'Thesis breaks' })
 
 const trade = (overrides = {}) => ({
   team_id: TEAM.A,
@@ -32,7 +46,7 @@ async function logTrade(client, overrides) {
 async function newPitch(client, overrides = {}) {
   const { data, error } = await client
     .from('pitches')
-    .insert({ team_id: TEAM.A, ticker: 'NVDA', thesis: 'AI chip demand', stage: 'pitched', ...overrides })
+    .insert({ team_id: TEAM.A, ticker: 'NVDA', thesis: 'AI chip demand', stage: 'pitched', ...pitchFields('A'), ...overrides })
     .select()
     .single()
   if (error) throw new Error(error.message)
@@ -187,7 +201,7 @@ await check("member can't create a pitch that is already approved", async () => 
 })
 
 await check("member can't create a pitch in another team", async () => {
-  const { error } = await a2.from('pitches').insert({ team_id: TEAM.B, ticker: 'X', thesis: 't' })
+  const { error } = await a2.from('pitches').insert({ team_id: TEAM.B, ticker: 'X', thesis: 't', stage: 'idea' })
   expect(error, 'cross-team pitch created')
 })
 
@@ -214,7 +228,7 @@ await check('Team A leader approves; decision is recorded', async () => {
 section('Trades link only to approved pitches')
 
 const draft = await newPitch(a2, { ticker: 'TSLA' })
-const bPitch = await newPitch(b2, { team_id: TEAM.B, ticker: 'NVDA' })
+const bPitch = await newPitch(b2, { team_id: TEAM.B, ticker: 'NVDA', ...pitchFields('B') })
 await samantha.from('pitches').update({ stage: 'approved' }).eq('id', bPitch.id)
 
 await check('linking to a pitch that is not approved is rejected', async () => {
@@ -316,6 +330,127 @@ await check('revoking a leader who approved a pitch works; the decision stays', 
   expect(!error, error?.message)
   const { data } = await a2.from('pitches').select('stage, decided_by, decided_at').eq('id', p.id).single()
   expect(data.stage === 'approved' && data.decided_by === null && data.decided_at, JSON.stringify(data))
+})
+
+// ---------------------------------------------------------------------------
+section('A sell must link to the Bought pitch for that ticker')
+
+const gabe = await as('gabe@demo.test') // Team C leader
+const c3 = await as('c3@demo.test') // Team C member
+const cTrade = (o) => trade({ team_id: TEAM.C, ...o })
+async function approvedPitchC(ticker) {
+  const { data: p } = await c3.from('pitches').insert({ team_id: TEAM.C, ticker, thesis: `${ticker} thesis`, stage: 'pitched', ...pitchFields('C') }).select().single()
+  await gabe.from('pitches').update({ stage: 'approved' }).eq('id', p.id)
+  return p
+}
+
+const cost1 = await approvedPitchC('COST')
+await logTrade(c3, { team_id: TEAM.C, ticker: 'COST', quantity: 10, price: 900, pitch_id: cost1.id })
+
+await check('sell without a pitch link is rejected while a Bought pitch holds the ticker', async () => {
+  const { error } = await c3.from('trades').insert(cTrade({ ticker: 'COST', side: 'sell', quantity: 5, price: 950 }))
+  expect(error && /SELL_NEEDS_PITCH/.test(error.message), error?.message ?? 'sell saved without link')
+})
+
+await check('the error message says what to do', async () => {
+  const { error } = await c3.from('trades').insert(cTrade({ ticker: 'COST', side: 'sell', quantity: 5, price: 950 }))
+  expect(/Link this sell to the pitch it closes/.test(error?.message ?? ''), error?.message)
+})
+
+await check('sell linked to the Bought pitch is accepted', async () => {
+  const t = await logTrade(c3, { team_id: TEAM.C, ticker: 'COST', side: 'sell', quantity: 5, price: 950, pitch_id: cost1.id })
+  expect(t.pitch_id === cost1.id, 'not linked')
+})
+
+const cost2 = await approvedPitchC('COST')
+
+await check('sell linked to an approved-but-not-Bought pitch is rejected when another is Bought', async () => {
+  const { error } = await c3.from('trades').insert(cTrade({ ticker: 'COST', side: 'sell', quantity: 1, price: 950, pitch_id: cost2.id }))
+  expect(error && /SELL_NEEDS_PITCH/.test(error.message), error?.message ?? 'accepted')
+})
+
+await check('with two Bought pitches for one ticker, a sell must link to one of them', async () => {
+  await logTrade(c3, { team_id: TEAM.C, ticker: 'COST', quantity: 4, price: 960, pitch_id: cost2.id })
+  const { error } = await c3.from('trades').insert(cTrade({ ticker: 'COST', side: 'sell', quantity: 1, price: 950 }))
+  expect(error && /2 Bought pitch/.test(error.message), error?.message ?? 'unlinked sell accepted')
+  const a = await logTrade(c3, { team_id: TEAM.C, ticker: 'COST', side: 'sell', quantity: 1, price: 950, pitch_id: cost1.id })
+  const b = await logTrade(c3, { team_id: TEAM.C, ticker: 'COST', side: 'sell', quantity: 1, price: 950, pitch_id: cost2.id })
+  expect(a && b, 'linked sells rejected')
+})
+
+await check('once nothing is Bought for the ticker, an unlinked sell is allowed again', async () => {
+  await logTrade(c3, { team_id: TEAM.C, ticker: 'COST', side: 'sell', quantity: 4, price: 950, pitch_id: cost1.id })
+  await logTrade(c3, { team_id: TEAM.C, ticker: 'COST', side: 'sell', quantity: 3, price: 950, pitch_id: cost2.id })
+  const { error } = await c3.from('trades').insert(cTrade({ ticker: 'COST', side: 'sell', quantity: 1, price: 950, rationale: 'Selling a share bought before the app existed.' }))
+  expect(!error, error?.message)
+})
+
+await check('voiding the buy that made a pitch Bought lifts the requirement', async () => {
+  const p = await approvedPitchC('WMT')
+  const buyT = await logTrade(c3, { team_id: TEAM.C, ticker: 'WMT', quantity: 10, price: 80, pitch_id: p.id })
+  const { error: e1 } = await c3.from('trades').insert(cTrade({ ticker: 'WMT', side: 'sell', quantity: 1, price: 80 }))
+  expect(e1, 'unlinked sell accepted while Bought')
+  await gabe.rpc('void_trade', { p_trade: buyT.id, p_reason: 'Wrong ticker' })
+  const { error: e2 } = await c3.from('trades').insert(cTrade({ ticker: 'WMT', side: 'sell', quantity: 1, price: 80, rationale: 'x' }))
+  expect(!e2, e2?.message)
+})
+
+// ---------------------------------------------------------------------------
+section('Cash and portfolio value: worked example')
+
+// Start Team B from a clean slate: void its earlier test trades.
+const { data: bTrades } = await samantha.from('trades').select('id').eq('team_id', TEAM.B).is('voided_at', null)
+for (const t of bTrades) await samantha.rpc('void_trade', { p_trade: t.id, p_reason: 'Reset for worked example' })
+
+// Starting capital 100,000.
+//   buy  100 AAA @ 50   → cash  95,000
+//   buy  200 BBB @ 25   → cash  90,000
+//   sell  50 AAA @ 60   → cash  93,000   (AAA now 50 shares, last price 60)
+//   buy   10 CCC @ 100  → voided, ignored
+// Holdings: AAA 50 × 60 = 3,000; BBB 200 × 25 = 5,000 → 8,000
+// Total = 93,000 + 8,000 = 101,000
+// AAA after the sell = 3,000 / 101,000 = 2.970%
+const ex = [
+  { ticker: 'AAA', side: 'buy', quantity: 100, price: 50, trade_date: '2026-10-01' },
+  { ticker: 'BBB', side: 'buy', quantity: 200, price: 25, trade_date: '2026-10-02' },
+  { ticker: 'AAA', side: 'sell', quantity: 50, price: 60, trade_date: '2026-10-03' },
+  { ticker: 'CCC', side: 'buy', quantity: 10, price: 100, trade_date: '2026-10-04' },
+]
+const exRows = []
+for (const t of ex) exRows.push(await logTrade(b2, { team_id: TEAM.B, rationale: 'Worked example', ...t }))
+await samantha.rpc('void_trade', { p_trade: exRows[3].id, p_reason: 'Worked example: voided' })
+
+const { data: totals } = await b2.from('portfolio_totals').select('*').eq('team_id', TEAM.B).single()
+
+await check('cash = 100,000 − 5,000 − 5,000 + 3,000 = 93,000 (voided buy ignored)', async () => {
+  expect(Number(totals.cash) === 93000, `cash ${totals.cash}`)
+})
+
+await check('holdings = AAA 50×60 + BBB 200×25 = 8,000', async () => {
+  expect(Number(totals.holdings_value) === 8000, `holdings ${totals.holdings_value}`)
+})
+
+await check('total (the % denominator) = 93,000 + 8,000 = 101,000', async () => {
+  expect(Number(totals.total_value) === 101000, `total ${totals.total_value}`)
+})
+
+await check('positions view: AAA 50 @ 60 = 3,000; BBB 200 @ 25 = 5,000; no CCC', async () => {
+  const { data } = await b2.from('positions').select('ticker, quantity, last_price, market_value').eq('team_id', TEAM.B).order('ticker')
+  const live = data.filter((p) => Number(p.quantity) !== 0)
+  const got = live.map((p) => `${p.ticker}:${Number(p.quantity)}@${Number(p.last_price)}=${Number(p.market_value)}`).join(' ')
+  expect(got === 'AAA:50@60=3000 BBB:200@25=5000', got)
+})
+
+await check("the app's position % for the AAA sell is 3,000 / 101,000 = 2.970%", async () => {
+  const { data } = await b2.from('trades').select('*').eq('team_id', TEAM.B)
+  const pctAfter = positionPercentAfterEachTrade(data, 100000).get(exRows[2].id)
+  expect(Math.abs(pctAfter - (3000 / 101000) * 100) < 1e-9, `got ${pctAfter}`)
+})
+
+await check("Team A can't see Team B's cash; president only sees own team", async () => {
+  const { data: a } = await a2.from('portfolio_totals').select('team_id')
+  const { data: p } = await malik.from('portfolio_totals').select('team_id')
+  expect(a.length === 1 && a[0].team_id === TEAM.A && p.length === 1 && p[0].team_id === TEAM.A, `a2 ${JSON.stringify(a)}, malik ${JSON.stringify(p)}`)
 })
 
 finish()

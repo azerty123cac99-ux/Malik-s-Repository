@@ -15,13 +15,27 @@ async function apiAs(email) {
 
 export async function run() {
   // An approved NVDA pitch for Team A, created the normal way.
+  const malikApi = await apiAs('malik@demo.test')
+  const { data: obj } = await malikApi
+    .from('client_objectives')
+    .insert({ team_id: TEAM_A, text: 'Long-term growth' })
+    .select()
+    .single()
   const a2api = await apiAs('a2@demo.test')
   const { data: pitch } = await a2api
     .from('pitches')
-    .insert({ team_id: TEAM_A, ticker: 'NVDA', thesis: 'AI data-center demand keeps growing', stage: 'pitched' })
+    .insert({
+      team_id: TEAM_A,
+      ticker: 'NVDA',
+      thesis: 'AI data-center demand keeps growing',
+      stage: 'pitched',
+      objective_id: obj.id,
+      key_risk: 'Valuation',
+      exit_trigger: 'Data-center growth stalls',
+    })
     .select()
     .single()
-  await (await apiAs('malik@demo.test')).from('pitches').update({ stage: 'approved' }).eq('id', pitch.id)
+  await malikApi.from('pitches').update({ stage: 'approved' }).eq('id', pitch.id)
 
   const browser = await launch()
   console.log('\nTrade log (Team A member, phone)')
@@ -30,7 +44,7 @@ export async function run() {
 
   await step('member opens Trades and sees the empty log', async () => {
     await signIn(page, 'a2@demo.test')
-    await page.getByRole('link', { name: 'Trades' }).click()
+    await page.getByRole('navigation').getByRole('link', { name: 'Trades', exact: true }).click()
     await page.getByText('No trades yet.').waitFor()
   })
 

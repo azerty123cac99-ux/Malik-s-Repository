@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Modal from '../components/Modal'
+import PositionsCard from '../components/PositionsCard'
 import { Alert, Button, TextArea } from '../components/ui'
 import { formatDateTime } from '../lib/format'
 import { money, pct, positionPercentAfterEachTrade, type Trade } from '../lib/portfolio'
@@ -16,6 +17,7 @@ export default function TradesPage() {
   const [names, setNames] = useState<Names>(new Map())
   const [pitchTickers, setPitchTickers] = useState<Map<string, string>>(new Map())
   const [voiding, setVoiding] = useState<Trade | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
 
   const load = useCallback(async () => {
     if (!teamId) return
@@ -32,6 +34,7 @@ export default function TradesPage() {
     setTrades(t.data ?? [])
     setNames(new Map((p.data ?? []).map((x) => [x.id, x.full_name])))
     setPitchTickers(new Map((pi.data ?? []).map((x) => [x.id, x.ticker])))
+    setReloadKey((k) => k + 1)
   }, [teamId])
 
   useEffect(() => {
@@ -63,6 +66,8 @@ export default function TradesPage() {
           </Link>
         )}
       </div>
+
+      {teamId && trades.length > 0 && <PositionsCard teamId={teamId} reloadKey={reloadKey} />}
 
       {trades.length === 0 && (
         <p className="bg-white rounded-2xl ring-1 ring-slate-200 p-4 text-sm text-slate-500">

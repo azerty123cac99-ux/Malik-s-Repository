@@ -34,6 +34,244 @@ export type Database = {
   }
   public: {
     Tables: {
+      asset_class_limits: {
+        Row: {
+          asset_class: Database["public"]["Enums"]["asset_type"]
+          max_pct: number
+          min_pct: number
+          team_id: string
+        }
+        Insert: {
+          asset_class: Database["public"]["Enums"]["asset_type"]
+          max_pct?: number
+          min_pct?: number
+          team_id: string
+        }
+        Update: {
+          asset_class?: Database["public"]["Enums"]["asset_type"]
+          max_pct?: number
+          min_pct?: number
+          team_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "asset_class_limits_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "portfolio_totals"
+            referencedColumns: ["team_id"]
+          },
+          {
+            foreignKeyName: "asset_class_limits_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      client_objectives: {
+        Row: {
+          created_at: string
+          id: string
+          sort_order: number
+          team_id: string
+          text: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          sort_order?: number
+          team_id: string
+          text: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          sort_order?: number
+          team_id?: string
+          text?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_objectives_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "portfolio_totals"
+            referencedColumns: ["team_id"]
+          },
+          {
+            foreignKeyName: "client_objectives_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      client_profiles: {
+        Row: {
+          client_name: string
+          constraints: string
+          liquidity_needs: string
+          max_position_pct: number | null
+          max_sector_pct: number | null
+          risk_tolerance: Database["public"]["Enums"]["risk_tolerance"] | null
+          summary: string
+          team_id: string
+          time_horizon: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          client_name?: string
+          constraints?: string
+          liquidity_needs?: string
+          max_position_pct?: number | null
+          max_sector_pct?: number | null
+          risk_tolerance?: Database["public"]["Enums"]["risk_tolerance"] | null
+          summary?: string
+          team_id: string
+          time_horizon?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          client_name?: string
+          constraints?: string
+          liquidity_needs?: string
+          max_position_pct?: number | null
+          max_sector_pct?: number | null
+          risk_tolerance?: Database["public"]["Enums"]["risk_tolerance"] | null
+          summary?: string
+          team_id?: string
+          time_horizon?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_profiles_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: true
+            referencedRelation: "portfolio_totals"
+            referencedColumns: ["team_id"]
+          },
+          {
+            foreignKeyName: "client_profiles_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: true
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_profiles_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      deadline_submissions: {
+        Row: {
+          deadline_id: string
+          submitted_at: string
+          submitted_by: string | null
+          team_id: string
+        }
+        Insert: {
+          deadline_id: string
+          submitted_at?: string
+          submitted_by?: string | null
+          team_id: string
+        }
+        Update: {
+          deadline_id?: string
+          submitted_at?: string
+          submitted_by?: string | null
+          team_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deadline_submissions_deadline_id_fkey"
+            columns: ["deadline_id"]
+            isOneToOne: false
+            referencedRelation: "deadlines"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deadline_submissions_submitted_by_fkey"
+            columns: ["submitted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deadline_submissions_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "portfolio_totals"
+            referencedColumns: ["team_id"]
+          },
+          {
+            foreignKeyName: "deadline_submissions_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      deadlines: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          due_at: string
+          id: string
+          team_id: string | null
+          title: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          due_at: string
+          id?: string
+          team_id?: string | null
+          title: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          due_at?: string
+          id?: string
+          team_id?: string | null
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deadlines_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deadlines_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "portfolio_totals"
+            referencedColumns: ["team_id"]
+          },
+          {
+            foreignKeyName: "deadlines_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       invite_revocations: {
         Row: {
           email: string
@@ -71,7 +309,140 @@ export type Database = {
             foreignKeyName: "invite_revocations_team_id_fkey"
             columns: ["team_id"]
             isOneToOne: false
+            referencedRelation: "portfolio_totals"
+            referencedColumns: ["team_id"]
+          },
+          {
+            foreignKeyName: "invite_revocations_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
             referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pitch_comments: {
+        Row: {
+          author_id: string | null
+          body: string
+          created_at: string
+          id: string
+          pitch_id: string
+          team_id: string
+        }
+        Insert: {
+          author_id?: string | null
+          body: string
+          created_at?: string
+          id?: string
+          pitch_id: string
+          team_id: string
+        }
+        Update: {
+          author_id?: string | null
+          body?: string
+          created_at?: string
+          id?: string
+          pitch_id?: string
+          team_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pitch_comments_author_id_fkey"
+            columns: ["author_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pitch_comments_pitch_id_fkey"
+            columns: ["pitch_id"]
+            isOneToOne: false
+            referencedRelation: "pitch_board"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pitch_comments_pitch_id_fkey"
+            columns: ["pitch_id"]
+            isOneToOne: false
+            referencedRelation: "pitches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pitch_comments_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "portfolio_totals"
+            referencedColumns: ["team_id"]
+          },
+          {
+            foreignKeyName: "pitch_comments_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pitch_votes: {
+        Row: {
+          created_at: string
+          pitch_id: string
+          team_id: string
+          updated_at: string
+          user_id: string
+          value: number
+        }
+        Insert: {
+          created_at?: string
+          pitch_id: string
+          team_id: string
+          updated_at?: string
+          user_id: string
+          value: number
+        }
+        Update: {
+          created_at?: string
+          pitch_id?: string
+          team_id?: string
+          updated_at?: string
+          user_id?: string
+          value?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pitch_votes_pitch_id_fkey"
+            columns: ["pitch_id"]
+            isOneToOne: false
+            referencedRelation: "pitch_board"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pitch_votes_pitch_id_fkey"
+            columns: ["pitch_id"]
+            isOneToOne: false
+            referencedRelation: "pitches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pitch_votes_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "portfolio_totals"
+            referencedColumns: ["team_id"]
+          },
+          {
+            foreignKeyName: "pitch_votes_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pitch_votes_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -144,6 +515,20 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "pitches_objective_fk"
+            columns: ["objective_id"]
+            isOneToOne: false
+            referencedRelation: "client_objectives"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pitches_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "portfolio_totals"
+            referencedColumns: ["team_id"]
+          },
+          {
             foreignKeyName: "pitches_team_id_fkey"
             columns: ["team_id"]
             isOneToOne: false
@@ -188,6 +573,13 @@ export type Database = {
             foreignKeyName: "profiles_team_id_fkey"
             columns: ["team_id"]
             isOneToOne: false
+            referencedRelation: "portfolio_totals"
+            referencedColumns: ["team_id"]
+          },
+          {
+            foreignKeyName: "profiles_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
             referencedRelation: "teams"
             referencedColumns: ["id"]
           },
@@ -225,6 +617,13 @@ export type Database = {
           team_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "roster_invites_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "portfolio_totals"
+            referencedColumns: ["team_id"]
+          },
           {
             foreignKeyName: "roster_invites_team_id_fkey"
             columns: ["team_id"]
@@ -330,6 +729,13 @@ export type Database = {
             foreignKeyName: "trades_team_id_fkey"
             columns: ["team_id"]
             isOneToOne: false
+            referencedRelation: "portfolio_totals"
+            referencedColumns: ["team_id"]
+          },
+          {
+            foreignKeyName: "trades_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
             referencedRelation: "teams"
             referencedColumns: ["id"]
           },
@@ -347,14 +753,17 @@ export type Database = {
       pitch_board: {
         Row: {
           asset_type: Database["public"]["Enums"]["asset_type"] | null
+          comment_count: number | null
           created_at: string | null
           created_by: string | null
           decided_at: string | null
           decided_by: string | null
           display_stage: string | null
+          down_votes: number | null
           exit_trigger: string | null
           id: string | null
           key_risk: string | null
+          my_vote: number | null
           net_quantity: number | null
           objective_id: string | null
           sources: string | null
@@ -363,6 +772,7 @@ export type Database = {
           thesis: string | null
           ticker: string | null
           trade_count: number | null
+          up_votes: number | null
           updated_at: string | null
         }
         Relationships: [
@@ -381,6 +791,20 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "pitches_objective_fk"
+            columns: ["objective_id"]
+            isOneToOne: false
+            referencedRelation: "client_objectives"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pitches_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "portfolio_totals"
+            referencedColumns: ["team_id"]
+          },
+          {
             foreignKeyName: "pitches_team_id_fkey"
             columns: ["team_id"]
             isOneToOne: false
@@ -389,15 +813,35 @@ export type Database = {
           },
         ]
       }
+      portfolio_totals: {
+        Row: {
+          cash: number | null
+          holdings_value: number | null
+          starting_capital: number | null
+          team_id: string | null
+          total_bought: number | null
+          total_sold: number | null
+          total_value: number | null
+        }
+        Relationships: []
+      }
       positions: {
         Row: {
           last_price: number | null
           last_trade_date: string | null
+          market_value: number | null
           quantity: number | null
           team_id: string | null
           ticker: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "trades_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "portfolio_totals"
+            referencedColumns: ["team_id"]
+          },
           {
             foreignKeyName: "trades_team_id_fkey"
             columns: ["team_id"]
@@ -415,6 +859,10 @@ export type Database = {
           email: string
           token: string
         }[]
+      }
+      cast_vote: {
+        Args: { p_pitch: string; p_value: number }
+        Returns: undefined
       }
       invite_token: { Args: { p_email: string }; Returns: string }
       lookup_invite: {
@@ -446,6 +894,7 @@ export type Database = {
       app_role: "member" | "leader" | "advisor"
       asset_type: "stock" | "etf" | "bond" | "fund" | "other"
       pitch_stage: "idea" | "pitched" | "approved" | "rejected"
+      risk_tolerance: "low" | "medium" | "high"
       trade_side: "buy" | "sell"
     }
     CompositeTypes: {
@@ -580,6 +1029,7 @@ export const Constants = {
       app_role: ["member", "leader", "advisor"],
       asset_type: ["stock", "etf", "bond", "fund", "other"],
       pitch_stage: ["idea", "pitched", "approved", "rejected"],
+      risk_tolerance: ["low", "medium", "high"],
       trade_side: ["buy", "sell"],
     },
   },

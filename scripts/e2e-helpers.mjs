@@ -22,7 +22,8 @@ export const PHONE = { width: 390, height: 844 }
 export const IPAD = { width: 820, height: 1180 }
 
 export async function newPage(browser, viewport = PHONE) {
-  const ctx = await browser.newContext({ viewport, deviceScaleFactor: 2, hasTouch: true })
+  // New York time, like a US school (the app shows each viewer's local time).
+  const ctx = await browser.newContext({ viewport, deviceScaleFactor: 2, hasTouch: true, timezoneId: 'America/New_York' })
   await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: APP })
   const page = await ctx.newPage()
   page.setDefaultTimeout(8000)
@@ -49,7 +50,7 @@ export async function step(name, fn) {
     console.log('  ✓', name)
   } catch (e) {
     failed++
-    console.log('  ✗', name, '\n     ', e.message.split('\n')[0])
+    console.log('  ✗', name, '\n     ', e.message.split('\n').slice(0, 4).join('\n      '))
   }
 }
 export function expect(cond, msg) {

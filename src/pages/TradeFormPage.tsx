@@ -1,11 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Alert, Button, Field, TextArea } from '../components/ui'
+import { formatDate, friendlyError } from '../lib/format'
 import { holdings, money, pct, positionPercentAfterEachTrade, type Trade } from '../lib/portfolio'
 import { Link, navigate } from '../lib/router'
 import { supabase } from '../lib/supabase'
 import { useTeamContent } from '../lib/useTeamContent'
 
-type ApprovedPitch = { id: string; ticker: string; thesis: string; display_stage: string }
+type ApprovedPitch = { id: string; ticker: string; thesis: string; display_stage: string; decided_at: string | null }
 
 const today = () => new Date().toLocaleDateString('en-CA') // YYYY-MM-DD in local time
 
@@ -19,7 +20,8 @@ export default function TradeFormPage() {
   const [ticker, setTicker] = useState('')
   const [quantity, setQuantity] = useState('')
   const [price, setPrice] = useState('')
-  const [pitchId, setPitchId] = useState('')
+  // null = let the form pick automatically; a string = the student's choice
+  const [pitchChoice, setPitchChoice] = useState<string | null>(null)
   const [rationale, setRationale] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -34,7 +36,7 @@ export default function TradeFormPage() {
     // Only approved pitches can be linked (the database enforces this too).
     supabase
       .from('pitch_board')
-      .select('id, ticker, thesis, display_stage')
+      .select('id, ticker, thesis, display_stage, decided_at')
       .eq('team_id', teamId)
       .eq('stage', 'approved')
       .order('ticker')
@@ -46,22 +48,34 @@ export default function TradeFormPage() {
   const px = Number(price)
   const numbersOk = qty > 0 && px > 0
   const held = holdings(trades).get(cleanTicker) ?? 0
-  const matchingPitches = pitches.filter((p) => !cleanTicker || p.ticker === cleanTicker)
+  // Pitches currently holding this ticker. A sell must link to one of them
+  // (the database enforces this too); with two or more, the student chooses.
+  const boughtFor = (t: string) => pitches.filter((p) => p.ticker === t && p.display_stage === 'bought')
+  const sellMustLink = side === 'sell' ? boughtFor(cleanTicker) : []
+  const pitchOptions = sellMustLink.length > 0 ? sellMustLink : pitches.filter((p) => !cleanTicker || p.ticker === cleanTicker)
 
-  // When the ticker changes, pick the obvious pitch: for a sell, the one
-  // currently Bought; for a buy, the only approved one if there's just one.
+  // The obvious pitch for this side and ticker. It's computed from the
+  // current data (not set once on typing), so it still works if the pitch
+  // list arrives after the student has typed the ticker.
+  function autoPitch() {
+    if (side === 'sell') return sellMustLink.length === 1 ? sellMustLink[0].id : ''
+    const approved = pitches.filter((p) => p.ticker === cleanTicker)
+    return approved.length === 1 ? approved[0].id : ''
+  }
+  const pitchId = pitchChoice ?? autoPitch()
+
   function changeTicker(value: string) {
     setTicker(value)
-    const t = value.trim().toUpperCase()
-    const candidates = pitches.filter((p) => p.ticker === t)
-    const pick =
-      candidates.find((p) => (side === 'sell' ? p.display_stage === 'bought' : true)) ??
-      (candidates.length === 1 ? candidates[0] : undefined)
-    setPitchId(pick?.id ?? '')
+    setPitchChoice(null)
+  }
+
+  function changeSide(value: 'buy' | 'sell') {
+    setSide(value)
+    setPitchChoice(null)
   }
 
   function changePitch(id: string) {
-    setPitchId(id)
+    setPitchChoice(id)
     const p = pitches.find((x) => x.id === id)
     if (p) setTicker(p.ticker)
   }
@@ -87,7 +101,8 @@ export default function TradeFormPage() {
         ).get('draft')
       : null
 
-  const canSave = canWrite && cleanTicker && numbersOk && rationale.trim().length > 0
+  const pitchOk = sellMustLink.length === 0 || sellMustLink.some((p) => p.id === pitchId)
+  const canSave = canWrite && cleanTicker && numbersOk && pitchOk && rationale.trim().length > 0
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -105,7 +120,7 @@ export default function TradeFormPage() {
       rationale: rationale.trim(),
     })
     setSaving(false)
-    if (error) return setError(error.message)
+    if (error) return setError(friendlyError(error.message))
     navigate('/trades')
   }
 
@@ -127,7 +142,7 @@ export default function TradeFormPage() {
             type="button"
             role="radio"
             aria-checked={side === s}
-            onClick={() => setSide(s)}
+            onClick={() => changeSide(s)}
             className={`rounded-lg py-3 font-semibold ring-1 ${
               side === s ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white text-slate-700 ring-slate-300'
             }`}
@@ -180,14 +195,26 @@ export default function TradeFormPage() {
           value={pitchId}
           onChange={(e) => changePitch(e.target.value)}
         >
-          <option value="">No pitch (e.g. rebalance)</option>
-          {matchingPitches.map((p) => (
+          {sellMustLink.length === 0 && <option value="">No pitch (e.g. rebalance)</option>}
+          {sellMustLink.length > 1 && (
+            <option value="" disabled>
+              Choose which pitch this sell closes
+            </option>
+          )}
+          {pitchOptions.map((p) => (
             <option key={p.id} value={p.id}>
-              {p.ticker}: {p.thesis.slice(0, 60)}
+              {p.ticker}: {p.thesis.slice(0, 50)}
+              {p.decided_at ? ` (approved ${formatDate(p.decided_at)})` : ''}
             </option>
           ))}
         </select>
-        <p className="text-xs text-slate-500 mt-1">Only approved pitches can be linked.</p>
+        <p className="text-xs text-slate-500 mt-1">
+          {sellMustLink.length > 1
+            ? `${cleanTicker} is held under ${sellMustLink.length} pitches. Pick the one this sell closes.`
+            : sellMustLink.length === 1
+              ? `${cleanTicker} is held under this pitch, so the sell links to it.`
+              : 'Only approved pitches can be linked.'}
+        </p>
       </div>
 
       <TextArea
@@ -218,7 +245,7 @@ export default function TradeFormPage() {
       {error && <Alert>{error}</Alert>}
 
       <Button type="submit" disabled={!canSave} loading={saving}>
-        {rationale.trim() ? 'Save trade' : 'Add a rationale to save'}
+        {!pitchOk ? 'Choose a pitch to save' : rationale.trim() ? 'Save trade' : 'Add a rationale to save'}
       </Button>
     </form>
   )

@@ -1,27 +1,267 @@
-import type { Profile } from '../lib/supabase'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { Alert, Button, Field } from '../components/ui'
+import type { Database } from '../lib/database.types'
+import { formatDateTime } from '../lib/format'
+import { Link } from '../lib/router'
+import { supabase } from '../lib/supabase'
+import { useTeamContent } from '../lib/useTeamContent'
 
-// Placeholder until the team home screen (step 6). Confirms who you are
-// signed in as, which is what step 1 needs to prove.
-export default function HomePage({ profile, teamName }: { profile: Profile; teamName: string | null }) {
-  const role = profile.is_president ? 'Leader · President' : profile.role[0].toUpperCase() + profile.role.slice(1)
+type Deadline = Database['public']['Tables']['deadlines']['Row']
+type Submission = Database['public']['Tables']['deadline_submissions']['Row']
+
+// "in 12 days", "in 5 hours", "2 days overdue"
+function countdown(dueIso: string, now: number) {
+  const ms = new Date(dueIso).getTime() - now
+  const abs = Math.abs(ms)
+  const days = Math.floor(abs / 86_400_000)
+  const hours = Math.floor(abs / 3_600_000)
+  const amount = days >= 1 ? `${days} day${days === 1 ? '' : 's'}` : `${hours} hour${hours === 1 ? '' : 's'}`
+  return { text: ms >= 0 ? `in ${amount}` : `${amount} overdue`, days: ms / 86_400_000 }
+}
+
+export default function HomePage() {
+  const { me, team, teamId, picker, canWrite, isLeader } = useTeamContent()
+  const [deadlines, setDeadlines] = useState<Deadline[]>([])
+  const [submissions, setSubmissions] = useState<Submission[]>([])
+  const [names, setNames] = useState<Map<string, string>>(new Map())
+  const [awaiting, setAwaiting] = useState(0)
+  const [tradesThisWeek, setTradesThisWeek] = useState(0)
+  const [error, setError] = useState<string | null>(null)
+  const [now, setNow] = useState(() => Date.now())
+
+  // Tick once a minute so the countdowns stay current on an open screen.
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 60_000)
+    return () => clearInterval(id)
+  }, [])
+
+  const load = useCallback(async () => {
+    if (!teamId) return
+    const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString()
+    const [d, s, n, p, t] = await Promise.all([
+      supabase.from('deadlines').select('*').or(`team_id.is.null,team_id.eq.${teamId}`).order('due_at'),
+      supabase.from('deadline_submissions').select('*').eq('team_id', teamId),
+      supabase.from('profiles').select('id, full_name'),
+      supabase.from('pitches').select('id', { count: 'exact', head: true }).eq('team_id', teamId).eq('stage', 'pitched'),
+      supabase
+        .from('trades')
+        .select('id', { count: 'exact', head: true })
+        .eq('team_id', teamId)
+        .is('voided_at', null)
+        .gte('created_at', weekAgo),
+    ])
+    setDeadlines(d.data ?? [])
+    setSubmissions(s.data ?? [])
+    setNames(new Map((n.data ?? []).map((x) => [x.id, x.full_name])))
+    setAwaiting(p.count ?? 0)
+    setTradesThisWeek(t.count ?? 0)
+  }, [teamId])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  async function run(action: () => PromiseLike<{ error: { message: string } | null }>) {
+    setError(null)
+    const { error } = await action()
+    if (error) setError(error.message)
+    await load()
+  }
+
+  if (!me) return null
+  const official = deadlines.filter((d) => d.team_id === null)
+  const custom = deadlines.filter((d) => d.team_id !== null)
+
   return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-bold">Hi, {profile.full_name}</h1>
-      <dl className="bg-white rounded-2xl ring-1 ring-slate-200 divide-y divide-slate-100 text-sm">
-        <Row label="Team" value={teamName ?? 'All teams (advisor)'} />
-        <Row label="Role" value={role} />
-        <Row label="Email" value={profile.email} />
-      </dl>
-      <p className="text-sm text-slate-500">Roster, trade log and the other screens are coming next.</p>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold">Hi, {me.full_name}</h1>
+          <p className="text-sm text-slate-500">
+            {me.role === 'advisor' ? 'Advisor · read-only' : `${team?.name ?? ''} · ${me.is_president ? 'Leader · President' : me.role === 'leader' ? 'Leader' : 'Member'}`}
+          </p>
+        </div>
+        {picker}
+      </div>
+
+      {error && <Alert>{error}</Alert>}
+
+      <section aria-labelledby="official-title" className="space-y-3">
+        <h2 id="official-title" className="text-sm font-semibold text-slate-500 uppercase tracking-wide">
+          Competition deadlines
+        </h2>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {official.map((d) => (
+            <DeadlineCard
+              key={d.id}
+              deadline={d}
+              now={now}
+              submission={submissions.find((s) => s.deadline_id === d.id)}
+              submittedBy={(id) => (id && names.get(id)) || 'Removed user'}
+              isLeader={isLeader}
+              onToggle={(sub) =>
+                run(() =>
+                  sub
+                    ? supabase.from('deadline_submissions').delete().eq('team_id', teamId!).eq('deadline_id', d.id)
+                    : supabase.from('deadline_submissions').insert({ team_id: teamId!, deadline_id: d.id }),
+                )
+              }
+              big
+            />
+          ))}
+        </div>
+      </section>
+
+      <section aria-labelledby="team-deadlines" className="space-y-3">
+        <h2 id="team-deadlines" className="text-sm font-semibold text-slate-500 uppercase tracking-wide">
+          Team deadlines
+        </h2>
+        {custom.length === 0 && <p className="text-sm text-slate-500">None yet.</p>}
+        <div className="grid gap-3 sm:grid-cols-2">
+          {custom.map((d) => (
+            <DeadlineCard
+              key={d.id}
+              deadline={d}
+              now={now}
+              submission={submissions.find((s) => s.deadline_id === d.id)}
+              submittedBy={(id) => (id && names.get(id)) || 'Removed user'}
+              isLeader={isLeader}
+              onToggle={(sub) =>
+                run(() =>
+                  sub
+                    ? supabase.from('deadline_submissions').delete().eq('team_id', teamId!).eq('deadline_id', d.id)
+                    : supabase.from('deadline_submissions').insert({ team_id: teamId!, deadline_id: d.id }),
+                )
+              }
+              onDelete={
+                isLeader
+                  ? () =>
+                      confirm(`Delete "${d.title}"?`) && run(() => supabase.from('deadlines').delete().eq('id', d.id))
+                  : undefined
+              }
+            />
+          ))}
+        </div>
+        {isLeader && teamId && <AddDeadline teamId={teamId} onAdded={load} />}
+      </section>
+
+      <section className="grid grid-cols-2 gap-3">
+        <Link to="/pipeline" className="bg-white rounded-2xl ring-1 ring-slate-200 p-4 hover:ring-slate-400">
+          <div className="text-3xl font-bold tabular-nums">{awaiting}</div>
+          <div className="text-sm text-slate-600">pitch{awaiting === 1 ? '' : 'es'} awaiting a leader decision</div>
+        </Link>
+        <Link to="/trades" className="bg-white rounded-2xl ring-1 ring-slate-200 p-4 hover:ring-slate-400">
+          <div className="text-3xl font-bold tabular-nums">{tradesThisWeek}</div>
+          <div className="text-sm text-slate-600">trade{tradesThisWeek === 1 ? '' : 's'} logged in the last 7 days</div>
+        </Link>
+      </section>
+
+      {canWrite && (
+        <div className="grid grid-cols-2 gap-3">
+          <Link to="/pipeline/new" className="rounded-lg bg-white ring-1 ring-slate-300 py-3 text-center font-semibold">
+            New idea
+          </Link>
+          <Link to="/trades/new" className="rounded-lg bg-slate-900 text-white py-3 text-center font-semibold">
+            Log trade
+          </Link>
+        </div>
+      )}
     </div>
   )
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function DeadlineCard({
+  deadline: d,
+  now,
+  submission,
+  submittedBy,
+  isLeader,
+  onToggle,
+  onDelete,
+  big,
+}: {
+  deadline: Deadline
+  now: number
+  submission?: Submission
+  submittedBy: (id: string | null) => string
+  isLeader: boolean
+  onToggle: (currentlySubmitted: boolean) => void
+  onDelete?: () => void
+  big?: boolean
+}) {
+  const c = countdown(d.due_at, now)
+  const urgent = !submission && c.days < 7
   return (
-    <div className="flex justify-between gap-4 px-4 py-3">
-      <dt className="text-slate-500">{label}</dt>
-      <dd className="font-medium text-right break-all">{value}</dd>
+    <div
+      className={`bg-white rounded-2xl ring-1 p-4 space-y-2 ${urgent ? 'ring-amber-300' : 'ring-slate-200'}`}
+      data-testid="deadline"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <h3 className="font-semibold">{d.title}</h3>
+        {submission ? (
+          <span className="rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 text-xs font-semibold">Submitted ✓</span>
+        ) : (
+          <span className="rounded-full bg-slate-100 text-slate-700 px-2 py-0.5 text-xs font-semibold">Not submitted</span>
+        )}
+      </div>
+      <div className={big ? 'text-3xl font-bold tabular-nums' : 'text-xl font-bold tabular-nums'}>
+        {submission ? '—' : c.text}
+      </div>
+      <p className="text-sm text-slate-500">
+        Due {formatDateTime(d.due_at)}
+        {submission && ` · submitted ${formatDateTime(submission.submitted_at)} by ${submittedBy(submission.submitted_by)}`}
+      </p>
+      {(isLeader || onDelete) && (
+        <div className="flex gap-3 text-sm">
+          {isLeader && (
+            <button onClick={() => onToggle(!!submission)} className="font-medium text-slate-900 hover:underline">
+              {submission ? 'Undo submitted' : 'Mark submitted'}
+            </button>
+          )}
+          {onDelete && (
+            <button onClick={onDelete} className="font-medium text-red-700 hover:underline">
+              Delete
+            </button>
+          )}
+        </div>
+      )}
     </div>
+  )
+}
+
+function AddDeadline({ teamId, onAdded }: { teamId: string; onAdded: () => Promise<void> }) {
+  const [title, setTitle] = useState('')
+  const [date, setDate] = useState('')
+  const [time, setTime] = useState('17:00')
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    setSaving(true)
+    setError(null)
+    // The browser turns local date + time into an exact moment.
+    const due = new Date(`${date}T${time || '17:00'}`).toISOString()
+    const { error } = await supabase.from('deadlines').insert({ team_id: teamId, title: title.trim(), due_at: due })
+    setSaving(false)
+    if (error) return setError(error.message)
+    setTitle('')
+    setDate('')
+    await onAdded()
+  }
+
+  return (
+    <form onSubmit={submit} className="bg-white rounded-2xl ring-1 ring-slate-200 p-4 space-y-3">
+      <h3 className="font-semibold">Add a team deadline</h3>
+      <Field label="What's due" required value={title} onChange={(e) => setTitle(e.target.value)} />
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Date" type="date" required value={date} onChange={(e) => setDate(e.target.value)} />
+        <Field label="Time" type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+      </div>
+      {error && <Alert>{error}</Alert>}
+      <Button type="submit" variant="secondary" disabled={!title.trim() || !date} loading={saving}>
+        Add deadline
+      </Button>
+    </form>
   )
 }

@@ -15,3 +15,9 @@ export function sameName(a: string, b: string) {
   const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase()
   return norm(a) !== '' && norm(a) === norm(b)
 }
+
+// Database errors we raise start with a code like "SELL_NEEDS_PITCH: ".
+// Keep the readable part for students.
+export function friendlyError(message: string) {
+  return message.replace(/^[A-Z_]+: /, '')
+}

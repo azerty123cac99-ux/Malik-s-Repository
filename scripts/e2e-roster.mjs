@@ -31,7 +31,7 @@ export async function run() {
 
   await step('leader sees the Roster tab and their team', async () => {
     await signIn(gabe, 'gabe@demo.test')
-    await gabe.getByRole('link', { name: 'Roster' }).click()
+    await gabe.getByRole('navigation').getByRole('link', { name: 'Roster', exact: true }).click()
     await gabe.getByRole('heading', { name: 'Roster' }).waitFor()
     await member('c2@demo.test').first().waitFor()
     await gabe.screenshot({ path: `${SHOTS}phone-7-roster.png`, fullPage: true })
@@ -121,7 +121,7 @@ export async function run() {
   await step('member has no Roster tab, and /roster shows Home instead', async () => {
     const page = await newPage(browser)
     await signIn(page, 'c2@demo.test')
-    expect((await page.getByRole('link', { name: 'Roster' }).count()) === 0, 'member sees Roster tab')
+    expect((await page.getByRole('navigation').getByRole('link', { name: 'Roster', exact: true }).count()) === 0, 'member sees Roster tab')
     await page.goto(`${APP}/roster`)
     await page.getByText(/^Hi, /).waitFor()
     expect((await page.getByRole('heading', { name: 'Roster' }).count()) === 0, 'member sees roster')

@@ -15,7 +15,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   const tabs: Tab[] = [
     { to: '/', label: 'Home', show: true },
+    { to: '/pipeline', label: 'Pipeline', show: true },
     { to: '/trades', label: 'Trades', show: true },
+    { to: '/client', label: 'Client', show: true },
     { to: '/roster', label: 'Roster', show: managesRoster },
   ]
 
