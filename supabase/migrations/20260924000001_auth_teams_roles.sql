@@ -72,6 +72,17 @@ create table public.profiles (
 
 create index profiles_team_id_idx on public.profiles (team_id);
 
+-- Audit log for "Revoke & reissue" (someone else claimed a student's link).
+-- No foreign key on revoked_user_id: that auth user no longer exists.
+create table public.invite_revocations (
+  id              bigint generated always as identity primary key,
+  email           text not null,
+  team_id         uuid references public.teams (id) on delete cascade,
+  revoked_user_id uuid not null,
+  revoked_by      uuid references public.profiles (id) on delete set null,
+  revoked_at      timestamptz not null default now()
+);
+
 -- -----------------------------------------------------------------------------
 -- Helper functions used by the RLS policies.
 --
@@ -352,6 +363,57 @@ as $$
   where i.claimed_at is null
 $$;
 
+-- "Revoke & reissue": the wrong person claimed a student's link.
+--   1. deletes the account that claimed it (it has the student's email but
+--      someone else's password). Their profile goes with it; content they
+--      authored stays, with the author set to null ("Removed user").
+--   2. resets the invite to unclaimed with a new token and a fresh 7 days.
+--   3. records who did it and when in invite_revocations.
+-- Returns the new token. All three happen together or not at all.
+create function public.revoke_and_reissue(p_email text) returns text
+language plpgsql volatile security definer set search_path = ''
+as $$
+declare
+  inv     public.roster_invites;
+  prof    public.profiles;
+  v_role  public.app_role;
+  v_token text := private.new_token();
+begin
+  select * into inv from public.roster_invites where email = lower(trim(p_email)) for update;
+  if not found then
+    raise exception 'Not allowed' using errcode = '42501';
+  end if;
+  select * into prof from public.profiles where email = inv.email;
+
+  -- If the account was promoted since the invite, treat it as a leader:
+  -- only the president or advisor may revoke a leader.
+  v_role := case when inv.role = 'leader' or prof.role = 'leader' then 'leader' else inv.role end;
+  if not private.can_manage_invite(inv.team_id, v_role, inv.is_president or coalesce(prof.is_president, false)) then
+    raise exception 'Not allowed' using errcode = '42501';
+  end if;
+  if inv.claimed_at is null or prof.id is null then
+    raise exception 'This invite has not been claimed; use Regenerate instead' using errcode = 'P0001';
+  end if;
+  if prof.id = auth.uid() then
+    raise exception 'You cannot revoke your own account' using errcode = '42501';
+  end if;
+
+  insert into public.invite_revocations (email, team_id, revoked_user_id, revoked_by)
+  values (inv.email, inv.team_id, prof.id, auth.uid());
+
+  -- Deleting the auth user also deletes their sessions and refresh tokens,
+  -- so they are signed out everywhere. Their profile is removed by cascade.
+  delete from auth.users where id = prof.id;
+
+  update private.invite_tokens set token = v_token where email = inv.email;
+  update public.roster_invites
+  set claimed_at = null, expires_at = now() + interval '7 days'
+  where email = inv.email;
+
+  return v_token;
+end;
+$$;
+
 -- -----------------------------------------------------------------------------
 -- Roster actions that change roles or access. These go through functions
 -- rather than direct UPDATEs so each rule is checked explicitly in one place.
@@ -431,6 +493,7 @@ revoke execute on function
   public.invite_token(text),
   public.regenerate_invite(text),
   public.admin_invite_tokens(),
+  public.revoke_and_reissue(text),
   public.set_member_role(uuid, public.app_role),
   public.set_member_active(uuid, boolean)
 from public, anon, authenticated;
@@ -439,12 +502,15 @@ grant execute on function public.lookup_invite(text) to anon, authenticated;
 grant execute on function
   public.invite_token(text),
   public.regenerate_invite(text),
+  public.revoke_and_reissue(text),
   public.set_member_role(uuid, public.app_role),
   public.set_member_active(uuid, boolean)
 to authenticated;
 grant execute on function public.admin_invite_tokens() to service_role;
 
-revoke all on public.teams, public.roster_invites, public.profiles from anon;
+revoke all on public.teams, public.roster_invites, public.profiles, public.invite_revocations from anon;
+-- The revocation log is written only by revoke_and_reissue().
+revoke insert, update, delete on public.invite_revocations from authenticated;
 
 -- RLS decides *which rows* you can touch but not *which columns*,
 -- so UPDATE is limited to specific columns here.
@@ -463,6 +529,7 @@ revoke update on public.roster_invites from authenticated;
 alter table public.teams enable row level security;
 alter table public.roster_invites enable row level security;
 alter table public.profiles enable row level security;
+alter table public.invite_revocations enable row level security;
 alter table private.invite_tokens enable row level security; -- no policies: nobody reads it directly
 
 -- teams: names and starting capital are not secret; any active user can read.
@@ -515,3 +582,12 @@ create policy "invites: add"
 create policy "invites: remove"
   on public.roster_invites for delete to authenticated
   using (private.can_manage_invite(team_id, role, is_president));
+
+-- invite_revocations: the same people who can see a team's invites.
+create policy "revocations: read"
+  on public.invite_revocations for select to authenticated
+  using (
+    private.is_leader_of(team_id)
+    or private.is_advisor()
+    or private.is_president()
+  );

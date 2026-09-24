@@ -171,6 +171,103 @@ await check('regenerated token works', async () => {
 })
 
 // ---------------------------------------------------------------------------
+section('Revoke & reissue (someone else claimed a link)')
+
+const WRONG_PASSWORD = 'not-the-real-student'
+let impostor
+let c4New
+
+await check('setup: wrong person claims c4\'s link with their own password', async () => {
+  const { error } = await newClient().auth.signUp({
+    email: 'c4@demo.test',
+    password: WRONG_PASSWORD,
+    options: { data: { invite_token: c4Token, full_name: 'Impostor' } },
+  })
+  expect(!error, error?.message)
+  impostor = newClient()
+  const { error: e2 } = await impostor.auth.signInWithPassword({ email: 'c4@demo.test', password: WRONG_PASSWORD })
+  expect(!e2, e2?.message)
+})
+
+await check('member b2 cannot revoke', async () => {
+  const { error } = await b2.rpc('revoke_and_reissue', { p_email: 'c4@demo.test' })
+  expect(error, 'member revoked')
+})
+
+await check('Team B leader cannot revoke a Team C account', async () => {
+  const { error } = await samantha.rpc('revoke_and_reissue', { p_email: 'c4@demo.test' })
+  expect(error, 'other team leader revoked')
+})
+
+await check('an unclaimed invite cannot be revoked (use Regenerate)', async () => {
+  await gabe.from('roster_invites').insert({ email: 'c6@demo.test', team_id: TEAM.C })
+  const { error } = await gabe.rpc('revoke_and_reissue', { p_email: 'c6@demo.test' })
+  expect(error, 'revoked an unclaimed invite')
+})
+
+await check('Team C leader revokes & reissues: new token returned', async () => {
+  const { data, error } = await gabe.rpc('revoke_and_reissue', { p_email: 'c4@demo.test' })
+  expect(!error, error?.message)
+  c4New = data
+  expect(/^[0-9a-f]{64}$/.test(c4New) && c4New !== c4Token, `got ${c4New}`)
+})
+
+await check("impostor's old password no longer logs in", async () => {
+  const { error } = await newClient().auth.signInWithPassword({ email: 'c4@demo.test', password: WRONG_PASSWORD })
+  expect(error, 'impostor logged in')
+})
+
+await check("impostor's still-open session sees nothing", async () => {
+  const { data: people } = await impostor.from('profiles').select('*')
+  const { data: teams } = await impostor.from('teams').select('*')
+  expect((people ?? []).length === 0 && (teams ?? []).length === 0, 'session still has access')
+})
+
+await check('the originally claimed token does not work again', async () => {
+  const { error } = await join('c4@demo.test', c4Token)
+  expect(error, 'old token worked')
+})
+
+await check('real student joins with the new link and logs in', async () => {
+  const { error } = await join('c4@demo.test', c4New)
+  expect(!error, error?.message)
+  const c4 = await as('c4@demo.test')
+  const { data } = await c4.from('profiles').select('team_id, role').eq('id', c4.uid).single()
+  expect(data?.team_id === TEAM.C && data.role === 'member', `got ${JSON.stringify(data)}`)
+})
+
+await check('revocation is logged with who and when', async () => {
+  const { data } = await gabe.from('invite_revocations').select('*').eq('email', 'c4@demo.test')
+  expect(data.length === 1 && data[0].revoked_by === gabe.uid && data[0].revoked_at, `got ${JSON.stringify(data)}`)
+})
+
+await check('revocation log: hidden from members and other teams, visible to advisor', async () => {
+  const { data: m } = await a2.from('invite_revocations').select('*')
+  const { data: o } = await samantha.from('invite_revocations').select('*')
+  const { data: adv } = await walsworth.from('invite_revocations').select('*')
+  expect(m.length === 0 && o.length === 0 && adv.length === 1, `member ${m.length}, other ${o.length}, advisor ${adv.length}`)
+})
+
+await check('nobody can write to the revocation log directly', async () => {
+  const { error } = await gabe
+    .from('invite_revocations')
+    .insert({ email: 'fake@demo.test', team_id: TEAM.C, revoked_user_id: gabe.uid })
+  expect(error, 'insert succeeded')
+})
+
+await check('a leader cannot revoke their own account', async () => {
+  const { error } = await gabe.rpc('revoke_and_reissue', { p_email: 'gabe@demo.test' })
+  expect(error, 'self revoke succeeded')
+})
+
+await check('Team C leader cannot revoke a promoted Team C leader (president/advisor only)', async () => {
+  await walsworth.rpc('set_member_role', { p_user: await idOf('c3@demo.test'), p_role: 'leader' })
+  const { error } = await gabe.rpc('revoke_and_reissue', { p_email: 'c3@demo.test' })
+  expect(error, 'leader revoked another leader')
+  await walsworth.rpc('set_member_role', { p_user: await idOf('c3@demo.test'), p_role: 'member' })
+})
+
+// ---------------------------------------------------------------------------
 section('Tokens are never readable through table queries')
 
 await malik.from('roster_invites').insert({ email: 'a7@demo.test', team_id: TEAM.A })
