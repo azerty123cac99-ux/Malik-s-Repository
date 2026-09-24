@@ -21,4 +21,5 @@ npm run seed:users      # create demo logins (password: demo-password-2026)
 
 - `supabase/migrations/` : database tables and privacy rules (RLS), in order
 - `supabase/seed.sql` : 3 demo teams and a placeholder roster (fake emails only; this repo is public)
+- `scripts/seed-users.mjs` : creates demo logins by claiming each invite token, like a real student would
 - `scripts/test-rls.mjs` : signs in as each role and checks what it can and can't do

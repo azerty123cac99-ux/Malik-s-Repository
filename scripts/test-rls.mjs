@@ -3,11 +3,13 @@
 // not be able to do.
 //
 //   npm run test:rls      (resets the local database first)
+import { execSync } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import { supabaseEnv } from './env.mjs'
 import { seedUsers, DEMO_PASSWORD } from './seed-users.mjs'
 
-const { url, anonKey } = supabaseEnv()
+const { url, anonKey, serviceKey, dbUrl } = supabaseEnv()
 const TEAM = {
   A: '00000000-0000-0000-0000-00000000000a',
   B: '00000000-0000-0000-0000-00000000000b',
@@ -15,6 +17,8 @@ const TEAM = {
 }
 
 const newClient = () => createClient(url, anonKey, { auth: { persistSession: false } })
+const admin = createClient(url, serviceKey, { auth: { persistSession: false } })
+const sql = (q) => execSync(`psql "${dbUrl}" -Atc "${q.replace(/"/g, '\\"')}"`).toString().trim()
 
 async function as(email) {
   const client = newClient()
@@ -23,6 +27,14 @@ async function as(email) {
   client.uid = data.user.id
   return client
 }
+
+// What the /join page will do.
+const join = (email, token) =>
+  newClient().auth.signUp({
+    email,
+    password: DEMO_PASSWORD,
+    options: { data: token === undefined ? {} : { invite_token: token, full_name: email.split('@')[0] } },
+  })
 
 let passed = 0
 let failed = 0
@@ -42,39 +54,241 @@ function expect(cond, msg) {
 const section = (t) => console.log(`\n${t}`)
 
 // ---------------------------------------------------------------------------
-// Setup: create logins for everyone except c5, who will sign up in a test.
-await seedUsers({ skip: ['c5@demo.test'] })
+// Setup: create logins for everyone except c4 and c5, who join during tests.
+await seedUsers({ skip: ['c4@demo.test', 'c5@demo.test'] })
 
 const anon = newClient()
 const malik = await as('malik@demo.test') // Team A leader + president
 const a2 = await as('a2@demo.test') // Team A member
 const samantha = await as('samantha@demo.test') // Team B leader
 const b2 = await as('b2@demo.test') // Team B member
+const gabe = await as('gabe@demo.test') // Team C leader
 const walsworth = await as('walsworth@demo.test') // advisor
 
 const idOf = async (email) => {
-  const { data } = await walsworth.from('profiles').select('id').eq('email', email).single()
+  const { data } = await admin.from('profiles').select('id').eq('email', email).single()
   return data.id
 }
 
 // ---------------------------------------------------------------------------
-section('Signup is invite-only (enforced in the database)')
+section('Joining requires a valid personal invite link')
 
-await check('email not on any roster cannot create an account', async () => {
-  const { error } = await newClient().auth.signUp({ email: 'stranger@demo.test', password: DEMO_PASSWORD })
-  expect(error, 'signup succeeded but should have been rejected')
+const c4Token = (await gabe.rpc('invite_token', { p_email: 'c4@demo.test' })).data
+const c5Token = (await gabe.rpc('invite_token', { p_email: 'c5@demo.test' })).data
+
+await check('tokens are 64 random hex characters', async () => {
+  expect(/^[0-9a-f]{64}$/.test(c4Token) && c4Token !== c5Token, `got ${c4Token}`)
 })
 
-await check('invited email can sign up and gets the right team and role', async () => {
-  const c = newClient()
-  const { error } = await c.auth.signUp({
-    email: 'c5@demo.test',
-    password: DEMO_PASSWORD,
-    options: { data: { full_name: 'Student C5' } },
-  })
+await check('no token: rejected', async () => {
+  const { error } = await join('c5@demo.test')
+  expect(error, 'signup succeeded')
+})
+
+await check('wrong token: rejected', async () => {
+  const { error } = await join('c5@demo.test', randomBytes(32).toString('hex'))
+  expect(error, 'signup succeeded')
+})
+
+await check("token for c4 can't create an account for c5", async () => {
+  const { error } = await join('c5@demo.test', c4Token)
+  expect(error, 'signup succeeded')
+})
+
+await check('email not on any roster: rejected even with a real token', async () => {
+  const { error } = await join('stranger@demo.test', c4Token)
+  expect(error, 'signup succeeded')
+})
+
+await check('/join lookup returns only email and team name', async () => {
+  const { data, error } = await anon.rpc('lookup_invite', { p_token: c5Token })
   expect(!error, error?.message)
-  const { data } = await c.from('profiles').select('team_id, role, full_name').eq('email', 'c5@demo.test').single()
+  expect(
+    data.length === 1 && JSON.stringify(Object.keys(data[0]).sort()) === '["email","team_name"]',
+    `got ${JSON.stringify(data)}`,
+  )
+  expect(data[0].email === 'c5@demo.test' && data[0].team_name === 'Team C', `got ${JSON.stringify(data)}`)
+})
+
+await check('valid token: account created with the right team and role', async () => {
+  const { error } = await join('c5@demo.test', c5Token)
+  expect(!error, error?.message)
+  const { data } = await admin.from('profiles').select('team_id, role').eq('email', 'c5@demo.test').single()
   expect(data?.team_id === TEAM.C && data.role === 'member', `got ${JSON.stringify(data)}`)
+})
+
+await check('invite is marked claimed, and the token is not kept in user metadata', async () => {
+  const { data: inv } = await gabe.from('roster_invites').select('claimed_at').eq('email', 'c5@demo.test').single()
+  expect(inv.claimed_at, 'claimed_at not set')
+  const meta = sql("select raw_user_meta_data::text from auth.users where email = 'c5@demo.test'")
+  expect(!meta.includes('invite_token'), `metadata still has token: ${meta}`)
+})
+
+await check('used token: /join lookup returns nothing', async () => {
+  const { data } = await anon.rpc('lookup_invite', { p_token: c5Token })
+  expect(data.length === 0, `got ${JSON.stringify(data)}`)
+})
+
+await check('used token: rejected even if that account is deleted and re-created', async () => {
+  const id = await idOf('c5@demo.test')
+  await admin.auth.admin.deleteUser(id)
+  const { error } = await join('c5@demo.test', c5Token)
+  expect(error, 'token was reused')
+})
+
+// Expiry and regeneration, on a fresh invite.
+let b7Old
+await check('expired token: rejected', async () => {
+  const { error: e1 } = await samantha.from('roster_invites').insert({ email: 'b7@demo.test', team_id: TEAM.B })
+  expect(!e1, e1?.message)
+  b7Old = (await samantha.rpc('invite_token', { p_email: 'b7@demo.test' })).data
+  await admin
+    .from('roster_invites')
+    .update({ expires_at: new Date(Date.now() - 60_000).toISOString() })
+    .eq('email', 'b7@demo.test')
+  const { error } = await join('b7@demo.test', b7Old)
+  expect(error, 'signup succeeded with expired token')
+})
+
+await check('expired invite: "copy link" refuses and asks to regenerate', async () => {
+  const { error } = await samantha.rpc('invite_token', { p_email: 'b7@demo.test' })
+  expect(error, 'copy link returned an expired token')
+})
+
+let b7New
+await check('regenerate: new token, old token rejected', async () => {
+  const { data, error } = await samantha.rpc('regenerate_invite', { p_email: 'b7@demo.test' })
+  expect(!error, error?.message)
+  b7New = data
+  expect(b7New && b7New !== b7Old, 'token did not change')
+  const { error: e2 } = await join('b7@demo.test', b7Old)
+  expect(e2, 'old token still works')
+})
+
+await check('regenerated token works', async () => {
+  const { error } = await join('b7@demo.test', b7New)
+  expect(!error, error?.message)
+})
+
+// ---------------------------------------------------------------------------
+section('Tokens are never readable through table queries')
+
+await malik.from('roster_invites').insert({ email: 'a7@demo.test', team_id: TEAM.A })
+
+await check('leader reading roster_invites gets no token field', async () => {
+  const { data } = await malik.from('roster_invites').select('*')
+  expect(data.length > 0 && data.every((r) => !('token' in r)), `row keys: ${Object.keys(data[0] ?? {})}`)
+})
+
+await check('private.invite_tokens is not reachable through the API', async () => {
+  for (const c of [anon, a2, malik, walsworth]) {
+    const { data, error } = await c.schema('private').from('invite_tokens').select('*')
+    expect(error && !data, `got ${JSON.stringify(data)}`)
+  }
+})
+
+await check('member a2 cannot copy a Team A invite link', async () => {
+  const { error } = await a2.rpc('invite_token', { p_email: 'a7@demo.test' })
+  expect(error, 'member got a token')
+})
+
+await check('Team B leader cannot copy a Team A invite link', async () => {
+  const { error } = await samantha.rpc('invite_token', { p_email: 'a7@demo.test' })
+  expect(error, 'other team leader got a token')
+})
+
+await check('Team B leader cannot regenerate a Team A invite link', async () => {
+  const { error } = await samantha.rpc('regenerate_invite', { p_email: 'a7@demo.test' })
+  expect(error, 'other team leader regenerated a token')
+})
+
+await check('logged-out visitor cannot copy an invite link', async () => {
+  const { error } = await anon.rpc('invite_token', { p_email: 'a7@demo.test' })
+  expect(error, 'anon got a token')
+})
+
+await check('Team A leader and the advisor can copy it', async () => {
+  for (const c of [malik, walsworth]) {
+    const { data, error } = await c.rpc('invite_token', { p_email: 'a7@demo.test' })
+    expect(!error && /^[0-9a-f]{64}$/.test(data), error?.message)
+  }
+})
+
+await check('seed-only token list is closed to users and visitors', async () => {
+  for (const c of [anon, malik, walsworth]) {
+    const { error } = await c.rpc('admin_invite_tokens')
+    expect(error, 'got the token list')
+  }
+})
+
+// ---------------------------------------------------------------------------
+section('Emails are always stored lowercase')
+
+await check('invite typed as "  NewKid@Demo.TEST " is stored as newkid@demo.test', async () => {
+  const { error } = await gabe.from('roster_invites').insert({ email: '  NewKid@Demo.TEST ', team_id: TEAM.C })
+  expect(!error, error?.message)
+  const { data } = await gabe.from('roster_invites').select('email').ilike('email', 'newkid%')
+  expect(data.length === 1 && data[0].email === 'newkid@demo.test', `got ${JSON.stringify(data)}`)
+})
+
+await check('joining with a mixed-case email still matches the invite', async () => {
+  const token = (await gabe.rpc('invite_token', { p_email: 'newkid@demo.test' })).data
+  const { error } = await join('NewKid@Demo.test', token)
+  expect(!error, error?.message)
+  const { data } = await admin.from('profiles').select('email').eq('email', 'newkid@demo.test')
+  expect(data.length === 1, 'profile not found under lowercase email')
+})
+
+await check('invite records who really sent it', async () => {
+  const { error } = await gabe
+    .from('roster_invites')
+    .insert({ email: 'c8@demo.test', team_id: TEAM.C, invited_by: malik.uid })
+  expect(!error, error?.message)
+  const { data } = await gabe.from('roster_invites').select('invited_by').eq('email', 'c8@demo.test').single()
+  expect(data.invited_by === gabe.uid, `invited_by = ${data.invited_by}`)
+})
+
+// ---------------------------------------------------------------------------
+section('Every SECURITY DEFINER function pins search_path')
+
+await check('no definer function in public or private is missing search_path', async () => {
+  const bad = sql(`
+    select string_agg(p.oid::regprocedure::text, ', ')
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname in ('public', 'private') and p.prosecdef
+      and not exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c like 'search_path=%')`)
+  expect(bad === '', `missing search_path: ${bad}`)
+})
+
+// ---------------------------------------------------------------------------
+section('Nobody can insert or delete profiles directly')
+
+await check('member cannot insert a profile', async () => {
+  const { error } = await a2
+    .from('profiles')
+    .insert({ id: a2.uid, email: 'x@demo.test', full_name: 'X', team_id: TEAM.B, role: 'leader' })
+  expect(error, 'insert succeeded')
+})
+
+await check('leader, president and advisor cannot insert a profile', async () => {
+  for (const c of [samantha, malik, walsworth]) {
+    const { error } = await c
+      .from('profiles')
+      .insert({ id: c.uid, email: 'y@demo.test', full_name: 'Y', team_id: TEAM.A, role: 'member' })
+    expect(error, 'insert succeeded')
+  }
+})
+
+await check('nobody can delete a profile (own or others)', async () => {
+  for (const [c, target] of [
+    [a2, a2.uid],
+    [samantha, await idOf('b2@demo.test')],
+    [walsworth, a2.uid],
+  ]) {
+    await c.from('profiles').delete().eq('id', target)
+  }
+  const count = sql(`select count(*) from public.profiles where id in ('${a2.uid}', '${await idOf('b2@demo.test')}')`)
+  expect(count === '2', `only ${count} of 2 profiles remain`)
 })
 
 // ---------------------------------------------------------------------------
@@ -165,11 +379,6 @@ await check('leader Malik cannot change Team B capital', async () => {
 // ---------------------------------------------------------------------------
 section('Roster management')
 
-await check('Team B leader can invite a member to Team B', async () => {
-  const { error } = await samantha.from('roster_invites').insert({ email: 'b7@demo.test', team_id: TEAM.B })
-  expect(!error, error?.message)
-})
-
 await check('Team B leader cannot invite into Team A', async () => {
   const { error } = await samantha.from('roster_invites').insert({ email: 'spy@demo.test', team_id: TEAM.A })
   expect(error, 'invite succeeded')
@@ -179,6 +388,13 @@ await check('Team B leader cannot invite someone as leader', async () => {
   const { error } = await samantha
     .from('roster_invites')
     .insert({ email: 'b8@demo.test', team_id: TEAM.B, role: 'leader' })
+  expect(error, 'invite succeeded')
+})
+
+await check('leader cannot create an invite that lasts longer than 7 days', async () => {
+  const { error } = await samantha
+    .from('roster_invites')
+    .insert({ email: 'b9@demo.test', team_id: TEAM.B, expires_at: '2030-01-01T00:00:00Z' })
   expect(error, 'invite succeeded')
 })
 
@@ -216,19 +432,21 @@ await check('president cannot change own role', async () => {
 // ---------------------------------------------------------------------------
 section('Who sees which rosters')
 
-await check('advisor sees all 18 profiles', async () => {
+const totalProfiles = Number(sql('select count(*) from public.profiles'))
+
+await check(`advisor sees all ${totalProfiles} profiles`, async () => {
   const { data } = await walsworth.from('profiles').select('id')
-  expect(data.length === 18, `saw ${data.length}`)
+  expect(data.length === totalProfiles, `saw ${data.length}`)
 })
 
-await check('president sees all 18 profiles (roster only, needed to promote leaders)', async () => {
+await check(`president sees all ${totalProfiles} profiles (roster only, needed to promote leaders)`, async () => {
   const { data } = await malik.from('profiles').select('id')
-  expect(data.length === 18, `saw ${data.length}`)
+  expect(data.length === totalProfiles, `saw ${data.length}`)
 })
 
-await check('Team B leader sees only 6 Team B profiles', async () => {
+await check('Team B leader sees only Team B profiles', async () => {
   const { data } = await samantha.from('profiles').select('team_id')
-  expect(data.length === 6 && data.every((p) => p.team_id === TEAM.B), `saw ${data.length}`)
+  expect(data.length > 0 && data.every((p) => p.team_id === TEAM.B), `saw ${data.length}`)
 })
 
 // ---------------------------------------------------------------------------
