@@ -15,6 +15,9 @@ npm install
 npx supabase start      # local database + auth + API
 npm run test:rls        # reset the database and prove the privacy rules
 npm run seed:users      # create demo logins (password: demo-password-2026)
+cp .env.example .env.local   # then paste the local anon key from `npx supabase status`
+npm run dev             # http://localhost:5173
+npm run test:e2e        # (with dev server running, fresh db) browser test at phone + iPad sizes
 ```
 
 ## Layout

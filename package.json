@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "db:reset": "supabase db reset",
     "seed:users": "node scripts/seed-users.mjs",
-    "test:rls": "supabase db reset && node scripts/test-rls.mjs"
+    "test:rls": "supabase db reset && node scripts/test-rls.mjs",
+    "db:types": "supabase gen types typescript --local > src/lib/database.types.ts",
+    "test:e2e": "node scripts/e2e-join.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.1",
@@ -24,6 +26,7 @@
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
     "oxlint": "^1.81.0",
+    "playwright-core": "^1.63.0",
     "supabase": "^2.117.0",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",
