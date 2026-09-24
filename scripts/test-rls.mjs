@@ -495,6 +495,14 @@ await check('leader cannot create an invite that lasts longer than 7 days', asyn
   expect(error, 'invite succeeded')
 })
 
+await check('leader can delete a pending invite but not a claimed one', async () => {
+  await samantha.from('roster_invites').insert({ email: 'b10@demo.test', team_id: TEAM.B })
+  const { data: pending } = await samantha.from('roster_invites').delete().eq('email', 'b10@demo.test').select()
+  expect(pending.length === 1, 'pending invite not deleted')
+  const { data: claimed } = await samantha.from('roster_invites').delete().eq('email', 'b2@demo.test').select()
+  expect(claimed.length === 0, 'claimed invite was deleted')
+})
+
 await check('member b2 cannot invite anyone', async () => {
   const { error } = await b2.from('roster_invites').insert({ email: 'b9@demo.test', team_id: TEAM.B })
   expect(error, 'invite succeeded')

@@ -1,10 +1,23 @@
 import type { ReactNode } from 'react'
 import { useAuth } from '../lib/auth'
+import { Link, useLocation } from '../lib/router'
 
-// Frame around every signed-in screen: team name and sign-out on top.
+type Tab = { to: string; label: string; show: boolean }
+
+// Frame around every signed-in screen: team name and sign-out on top, tabs
+// at the bottom (where thumbs reach on a phone).
 export default function AppShell({ children }: { children: ReactNode }) {
   const auth = useAuth()
+  const { path } = useLocation()
   if (auth.status !== 'ready') return null
+  const { profile } = auth
+  const managesRoster = profile.role !== 'member' || profile.is_president
+
+  const tabs: Tab[] = [
+    { to: '/', label: 'Home', show: true },
+    { to: '/roster', label: 'Roster', show: managesRoster },
+  ]
+
   return (
     <div className="min-h-dvh">
       <header className="sticky top-0 z-10 bg-slate-900 text-white pt-[env(safe-area-inset-top)]">
@@ -18,7 +31,29 @@ export default function AppShell({ children }: { children: ReactNode }) {
           </button>
         </div>
       </header>
-      <main className="mx-auto max-w-3xl px-4 py-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">{children}</main>
+
+      <main className="mx-auto max-w-3xl px-4 py-6 pb-28">{children}</main>
+
+      <nav className="fixed bottom-0 inset-x-0 z-10 bg-white border-t border-slate-200 pb-[env(safe-area-inset-bottom)]">
+        <ul className="mx-auto max-w-3xl flex">
+          {tabs
+            .filter((t) => t.show)
+            .map((t) => {
+              const active = t.to === '/' ? path === '/' : path.startsWith(t.to)
+              return (
+                <li key={t.to} className="flex-1">
+                  <Link
+                    to={t.to}
+                    aria-current={active ? 'page' : undefined}
+                    className={`block text-center py-3.5 text-sm font-medium ${active ? 'text-slate-900' : 'text-slate-500'}`}
+                  >
+                    {t.label}
+                  </Link>
+                </li>
+              )
+            })}
+        </ul>
+      </nav>
     </div>
   )
 }

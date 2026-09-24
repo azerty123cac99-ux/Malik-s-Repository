@@ -579,9 +579,11 @@ create policy "invites: add"
     and private.can_manage_invite(team_id, role, is_president)
   );
 
+-- Only unclaimed invites can be deleted. A claimed invite is what
+-- Revoke & reissue works from, so it stays.
 create policy "invites: remove"
   on public.roster_invites for delete to authenticated
-  using (private.can_manage_invite(team_id, role, is_president));
+  using (claimed_at is null and private.can_manage_invite(team_id, role, is_president));
 
 -- invite_revocations: the same people who can see a team's invites.
 create policy "revocations: read"

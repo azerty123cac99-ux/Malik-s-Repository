@@ -17,8 +17,10 @@ npm run test:rls        # reset the database and prove the privacy rules
 npm run seed:users      # create demo logins (password: demo-password-2026)
 cp .env.example .env.local   # then paste the local anon key from `npx supabase status`
 npm run dev             # http://localhost:5173
-npm run test:e2e        # (with dev server running, fresh db) browser test at phone + iPad sizes
+npm run test:e2e        # (dev server running, after `npx supabase db reset`) browser tests at phone + iPad sizes
 ```
+
+Deploying: see [docs/SETUP.md](docs/SETUP.md).
 
 ## Layout
 

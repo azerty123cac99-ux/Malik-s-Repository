@@ -12,7 +12,7 @@
     "seed:users": "node scripts/seed-users.mjs",
     "test:rls": "supabase db reset && node scripts/test-rls.mjs",
     "db:types": "supabase gen types typescript --local > src/lib/database.types.ts",
-    "test:e2e": "node scripts/e2e-join.mjs"
+    "test:e2e": "node scripts/e2e.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.1",
