@@ -86,31 +86,40 @@ export default function HomePage() {
 
       {error && <Alert>{error}</Alert>}
 
-      <section aria-labelledby="official-title" className="space-y-3">
-        <h2 id="official-title" className="text-sm font-semibold text-slate-500 uppercase tracking-wide">
-          Competition deadlines
-        </h2>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {official.map((d) => (
-            <DeadlineCard
-              key={d.id}
-              deadline={d}
-              now={now}
-              submission={submissions.find((s) => s.deadline_id === d.id)}
-              submittedBy={(id) => (id && names.get(id)) || 'Removed user'}
-              isLeader={isLeader}
-              onToggle={(sub) =>
-                run(() =>
-                  sub
-                    ? supabase.from('deadline_submissions').delete().eq('team_id', teamId!).eq('deadline_id', d.id)
-                    : supabase.from('deadline_submissions').insert({ team_id: teamId!, deadline_id: d.id }),
-                )
-              }
-              big
-            />
-          ))}
-        </div>
-      </section>
+      {team?.is_sandbox && (
+        <Alert tone="info">
+          <strong>Sandbox:</strong> a test team for checking the app after each deploy. Nothing here counts toward the
+          competition, and it doesn't appear in the president overview.
+        </Alert>
+      )}
+
+      {!team?.is_sandbox && (
+        <section aria-labelledby="official-title" className="space-y-3">
+          <h2 id="official-title" className="text-sm font-semibold text-slate-500 uppercase tracking-wide">
+            Competition deadlines
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {official.map((d) => (
+              <DeadlineCard
+                key={d.id}
+                deadline={d}
+                now={now}
+                submission={submissions.find((s) => s.deadline_id === d.id)}
+                submittedBy={(id) => (id && names.get(id)) || 'Removed user'}
+                isLeader={isLeader}
+                onToggle={(sub) =>
+                  run(() =>
+                    sub
+                      ? supabase.from('deadline_submissions').delete().eq('team_id', teamId!).eq('deadline_id', d.id)
+                      : supabase.from('deadline_submissions').insert({ team_id: teamId!, deadline_id: d.id }),
+                  )
+                }
+                big
+              />
+            ))}
+          </div>
+        </section>
+      )}
 
       <section aria-labelledby="team-deadlines" className="space-y-3">
         <h2 id="team-deadlines" className="text-sm font-semibold text-slate-500 uppercase tracking-wide">

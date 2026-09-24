@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from './auth'
 import { supabase } from './supabase'
 
-type Team = { id: string; name: string; starting_capital: number }
+type Team = { id: string; name: string; starting_capital: number; is_sandbox: boolean }
 
 export function useTeamContent() {
   const auth = useAuth()
@@ -16,7 +16,7 @@ export function useTeamContent() {
   useEffect(() => {
     supabase
       .from('teams')
-      .select('id, name, starting_capital')
+      .select('id, name, starting_capital, is_sandbox')
       .order('name')
       .then(({ data }) => {
         setTeams(data ?? [])

@@ -144,9 +144,10 @@ select email, token from private.invite_tokens;
 - [ ] Send Mr. Walsworth his link by text or DM.
 - [ ] Invite Samantha and Gabe **as leaders** from the Roster screen in the app
       (only the president and advisor can do that). They then invite their own members.
-- [ ] Also test: open your invite link a second time. It should say the link is
-      no longer valid. Then refresh the page on the `/join` URL: it should
-      still load (this proves the `vercel.json` rewrite works on the real host).
+- [ ] A **Sandbox** team was created automatically by the migrations; don't
+      rename or delete it. It's for the smoke test.
+- [ ] Run the smoke test: [docs/SMOKE-TEST.md](SMOKE-TEST.md). Repeat it after
+      every future deploy or migration.
 
 ---
 

@@ -637,18 +637,21 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          is_sandbox: boolean
           name: string
           starting_capital: number
         }
         Insert: {
           created_at?: string
           id?: string
+          is_sandbox?: boolean
           name: string
           starting_capital?: number
         }
         Update: {
           created_at?: string
           id?: string
+          is_sandbox?: boolean
           name?: string
           starting_capital?: number
         }
@@ -884,6 +887,23 @@ export type Database = {
           p_user: string
         }
         Returns: undefined
+      }
+      team_overview: {
+        Args: never
+        Returns: {
+          active_members: number
+          at_risk_members: number
+          below_minimum: boolean
+          comments_7d: number
+          deadlines: Json
+          inactive_members: number
+          members: number
+          pitches_7d: number
+          team_id: string
+          team_name: string
+          trades_7d: number
+          votes_7d: number
+        }[]
       }
       void_trade: {
         Args: { p_reason: string; p_trade: string }
