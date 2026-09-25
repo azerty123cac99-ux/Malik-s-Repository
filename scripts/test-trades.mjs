@@ -82,6 +82,39 @@ await check('trade with a rationale is saved, placed by the signed-in member', a
 })
 
 // ---------------------------------------------------------------------------
+section('Duplicate submits (same client request ID) create only one trade')
+
+await check('the same request ID twice: second insert rejected, one trade stored', async () => {
+  const requestId = crypto.randomUUID()
+  const t = trade({ ticker: 'DUPE', client_request_id: requestId })
+  const first = await a2.from('trades').insert(t)
+  const second = await a2.from('trades').insert(t)
+  const { data } = await a2.from('trades').select('id').eq('client_request_id', requestId)
+  expect(!first.error && second.error?.code === '23505' && data.length === 1, `first ${first.error?.message}, second ${second.error?.code}, rows ${data.length}`)
+})
+
+await check('two simultaneous submits with one request ID still store one trade', async () => {
+  const requestId = crypto.randomUUID()
+  const t = trade({ ticker: 'DUPE', client_request_id: requestId })
+  const results = await Promise.all([a2.from('trades').insert(t), a2.from('trades').insert(t), a2.from('trades').insert(t)])
+  const { data } = await a2.from('trades').select('id').eq('client_request_id', requestId)
+  expect(results.filter((r) => !r.error).length === 1 && data.length === 1, `ok ${results.filter((r) => !r.error).length}, rows ${data.length}`)
+})
+
+await check('different request IDs are separate trades', async () => {
+  await logTrade(a2, { ticker: 'DUPE', client_request_id: crypto.randomUUID() })
+  await logTrade(a2, { ticker: 'DUPE', client_request_id: crypto.randomUUID() })
+  const { data } = await a2.from('trades').select('id').eq('ticker', 'DUPE')
+  expect(data.length === 4, `rows ${data.length}`)
+})
+
+// Clean up so later checks on positions aren't affected.
+{
+  const { data } = await a2.from('trades').select('id').eq('ticker', 'DUPE')
+  for (const t of data) await a2.rpc('void_trade', { p_trade: t.id, p_reason: 'Duplicate-submit test' })
+}
+
+// ---------------------------------------------------------------------------
 section('Team privacy for trades')
 
 await check("member can't log a trade for another team", async () => {

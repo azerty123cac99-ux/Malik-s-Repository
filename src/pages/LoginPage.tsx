@@ -44,7 +44,7 @@ export default function LoginPage() {
             onChange={(e) => setPassword(e.target.value)}
           />
           {error && <Alert>{error}</Alert>}
-          <Button type="submit" loading={loading}>
+          <Button type="submit" loading={loading} loadingText="Signing in…">
             Sign in
           </Button>
         </form>

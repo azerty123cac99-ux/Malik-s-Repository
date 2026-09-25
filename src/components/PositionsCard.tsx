@@ -1,7 +1,5 @@
-import { useEffect, useState } from 'react'
 import type { Database } from '../lib/database.types'
 import { money, pct } from '../lib/portfolio'
-import { supabase } from '../lib/supabase'
 
 type Position = Database['public']['Views']['positions']['Row']
 type Totals = Database['public']['Views']['portfolio_totals']['Row']
@@ -10,20 +8,13 @@ type Totals = Database['public']['Views']['portfolio_totals']['Row']
 // see here is exactly what the % figures are based on.
 //   total value = cash + every position at its last traded price
 //   cash        = starting capital − buys + sells (voided trades ignored)
-export default function PositionsCard({ teamId, reloadKey }: { teamId: string; reloadKey: number }) {
-  const [positions, setPositions] = useState<Position[]>([])
-  const [totals, setTotals] = useState<Totals | null>(null)
+export type PositionRow = Position
+export type TotalsRow = Totals
 
-  useEffect(() => {
-    Promise.all([
-      supabase.from('positions').select('*').eq('team_id', teamId).order('ticker'),
-      supabase.from('portfolio_totals').select('*').eq('team_id', teamId).maybeSingle(),
-    ]).then(([p, t]) => {
-      setPositions((p.data ?? []).filter((x) => Number(x.quantity) !== 0))
-      setTotals(t.data)
-    })
-  }, [teamId, reloadKey])
-
+// Presentational: the trade log loads positions and totals together with the
+// trades, so everything on the screen refreshes at the same moment.
+export default function PositionsCard({ positions: all, totals }: { positions: Position[]; totals: Totals | null }) {
+  const positions = all.filter((x) => Number(x.quantity) !== 0)
   if (!totals) return null
   const total = Number(totals.total_value)
   const share = (v: number) => (total > 0 ? (v / total) * 100 : null)

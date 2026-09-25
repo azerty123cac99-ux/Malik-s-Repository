@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Alert, Button, Field, TextArea } from '../components/ui'
 import type { Database } from '../lib/database.types'
 import { friendlyError } from '../lib/format'
 import { ASSET_CLASSES, type AssetClass } from '../lib/labels'
 import { Link, navigate } from '../lib/router'
 import { supabase } from '../lib/supabase'
+import { withFlash } from '../lib/useAction'
 import { useTeamContent } from '../lib/useTeamContent'
 
 type Pitch = Database['public']['Tables']['pitches']['Row']
@@ -25,16 +26,19 @@ export default function PitchFormPage({ pitchId }: { pitchId?: string }) {
     sources: '',
   })
   const [error, setError] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
+  // Which button is saving ('idea' | 'pitched' | 'save'), or null.
+  const [saving, setSaving] = useState<string | null>(null)
+  const submitting = useRef(false) // synchronous guard against a fast double tap
 
   useEffect(() => {
     if (!teamId) return
+    let current = true // ignore late responses after leaving or switching
     supabase
       .from('client_objectives')
       .select('id, text')
       .eq('team_id', teamId)
       .order('sort_order')
-      .then(({ data }) => setObjectives(data ?? []))
+      .then(({ data }) => current && setObjectives(data ?? []))
     if (pitchId) {
       supabase
         .from('pitches')
@@ -42,7 +46,7 @@ export default function PitchFormPage({ pitchId }: { pitchId?: string }) {
         .eq('id', pitchId)
         .single()
         .then(({ data }) => {
-          if (!data) return
+          if (!data || !current) return
           setExisting(data)
           setF({
             ticker: data.ticker,
@@ -55,6 +59,9 @@ export default function PitchFormPage({ pitchId }: { pitchId?: string }) {
           })
         })
     }
+    return () => {
+      current = false
+    }
   }, [teamId, pitchId])
 
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value })
@@ -63,9 +70,10 @@ export default function PitchFormPage({ pitchId }: { pitchId?: string }) {
   const readyToPitch = basicsOk && f.objective_id !== '' && f.key_risk.trim() !== '' && f.exit_trigger.trim() !== ''
   const stage = existing?.stage ?? 'idea'
 
-  async function save(nextStage: Pitch['stage']) {
-    if (!teamId) return
-    setSaving(true)
+  async function save(nextStage: Pitch['stage'], key: string) {
+    if (!teamId || submitting.current) return
+    submitting.current = true
+    setSaving(key)
     setError(null)
     const fields = {
       ticker,
@@ -78,11 +86,21 @@ export default function PitchFormPage({ pitchId }: { pitchId?: string }) {
       stage: nextStage,
     }
     const res = existing
-      ? await supabase.from('pitches').update(fields).eq('id', existing.id).select('id').single()
-      : await supabase.from('pitches').insert({ ...fields, team_id: teamId }).select('id').single()
-    setSaving(false)
-    if (res.error) return setError(friendlyError(res.error.message))
-    navigate(`/pipeline/${res.data.id}`)
+      ? await supabase.from('pitches').update(fields).eq('id', existing.id).select('id')
+      : await supabase.from('pitches').insert({ ...fields, team_id: teamId }).select('id')
+    const id = res.data?.[0]?.id
+    if (res.error || !id) {
+      submitting.current = false
+      setSaving(null)
+      // No error but no row: the database's rules skipped the update.
+      return setError(
+        res.error
+          ? friendlyError(res.error.message)
+          : "Nothing was saved. You may not have permission, or it changed meanwhile. Refresh and try again.",
+      )
+    }
+    const message = nextStage === 'pitched' && stage === 'idea' ? 'Pitched to the team' : existing ? 'Pitch saved' : 'Idea saved'
+    navigate(withFlash(`/pipeline/${id}`, message))
   }
 
   if (!canWrite) return <Alert tone="info">Only members of this team can add or edit pitches.</Alert>
@@ -175,18 +193,18 @@ export default function PitchFormPage({ pitchId }: { pitchId?: string }) {
 
       {stage === 'idea' ? (
         <div className="grid grid-cols-2 gap-2">
-          <Button variant="secondary" disabled={!basicsOk} loading={saving} onClick={() => save('idea')}>
+          <Button variant="secondary" disabled={!basicsOk || !!saving} loading={saving === 'idea'} onClick={() => save('idea', 'idea')}>
             Save as idea
           </Button>
-          <Button disabled={!readyToPitch} loading={saving} onClick={() => save('pitched')}>
+          <Button disabled={!readyToPitch || !!saving} loading={saving === 'pitched'} onClick={() => save('pitched', 'pitched')}>
             Pitch to team
           </Button>
         </div>
       ) : (
         <Button
-          disabled={stage === 'pitched' ? !readyToPitch : !basicsOk}
-          loading={saving}
-          onClick={() => save(stage)}
+          disabled={(stage === 'pitched' ? !readyToPitch : !basicsOk) || !!saving}
+          loading={saving === 'save'}
+          onClick={() => save(stage, 'save')}
         >
           Save changes
         </Button>

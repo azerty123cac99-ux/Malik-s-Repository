@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState, type ButtonHTMLAttributes, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ButtonHTMLAttributes, type FormEvent, type ReactNode } from 'react'
 import Modal from '../components/Modal'
 import { Alert, Button, Field } from '../components/ui'
 import { useAuth } from '../lib/auth'
 import type { Database } from '../lib/database.types'
 import { daysUntil, formatDate, formatDateTime, sameName } from '../lib/format'
 import { supabase, type AppRole, type Profile } from '../lib/supabase'
+import { ActionStatus, changed, useAction } from '../lib/useAction'
+import { useLatest } from '../lib/useLatest'
 
 type Invite = Database['public']['Tables']['roster_invites']['Row']
 type Revocation = Database['public']['Tables']['invite_revocations']['Row']
@@ -30,7 +32,6 @@ function Roster({ me }: { me: Profile }) {
   const [members, setMembers] = useState<Profile[]>([])
   const [invites, setInvites] = useState<Invite[]>([])
   const [revocations, setRevocations] = useState<Revocation[]>([])
-  const [error, setError] = useState<string | null>(null)
   const [link, setLink] = useState<LinkInfo | null>(null)
   const [revoking, setRevoking] = useState<Profile | null>(null)
 
@@ -45,17 +46,23 @@ function Roster({ me }: { me: Profile }) {
       })
   }, [])
 
+  const begin = useLatest()
+
   const load = useCallback(async () => {
     if (!teamId) return
+    const isLatest = begin()
     const [p, i, r] = await Promise.all([
       supabase.from('profiles').select('*').eq('team_id', teamId).order('full_name'),
       supabase.from('roster_invites').select('*').eq('team_id', teamId).is('claimed_at', null).order('created_at'),
       supabase.from('invite_revocations').select('*').eq('team_id', teamId).order('revoked_at', { ascending: false }),
     ])
+    // Switching teams quickly, or reloading after an action, can return
+    // responses out of order; only the latest load may update the screen.
+    if (!isLatest()) return
     setMembers(p.data ?? [])
     setInvites(i.data ?? [])
     setRevocations(r.data ?? [])
-  }, [teamId])
+  }, [teamId, begin])
 
   useEffect(() => {
     load()
@@ -65,30 +72,35 @@ function Roster({ me }: { me: Profile }) {
   const canManage = (role: AppRole, isPresident = false) =>
     !isPresident && ((role === 'member' && (managesAll || (me.role === 'leader' && isMyTeam))) || (role === 'leader' && managesAll))
 
-  // Runs a database call and shows its error, if any. Returns true on success.
-  async function run(action: () => PromiseLike<{ error: { message: string } | null }>) {
-    setError(null)
-    const { error } = await action()
-    if (error) setError(error.message)
-    await load()
-    return !error
-  }
+  // Every roster action: one at a time (buttons disabled meanwhile), then
+  // the lists reload and a success or error message is shown.
+  const action = useAction(load)
+  const busy = action.busy !== null
+  const label = (key: string, text: string) => (action.busy === key ? 'Saving…' : text)
+  const inSevenDays = () => new Date(Date.now() + 7 * 86_400_000).toISOString()
 
-  async function showLink(invite: Invite) {
-    setError(null)
-    const { data, error } = await supabase.rpc('invite_token', { p_email: invite.email })
-    if (error || !data) return setError(error?.message ?? 'Could not get the link.')
-    setLink({ email: invite.email, token: data, expiresAt: invite.expires_at })
-  }
+  const showLink = (invite: Invite) =>
+    action.run(
+      `link:${invite.email}`,
+      async () => {
+        const { data, error } = await supabase.rpc('invite_token', { p_email: invite.email })
+        if (error || !data) return { error: error ?? { message: 'Could not get the link.' } }
+        setLink({ email: invite.email, token: data, expiresAt: invite.expires_at })
+      },
+      'Invite link ready',
+    )
 
-  async function regenerate(invite: Invite) {
-    if (!confirm(`Create a new link for ${invite.email}? The old link will stop working.`)) return
-    setError(null)
-    const { data, error } = await supabase.rpc('regenerate_invite', { p_email: invite.email })
-    await load()
-    if (error || !data) return setError(error?.message ?? 'Could not regenerate the link.')
-    setLink({ email: invite.email, token: data, expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString() })
-  }
+  const regenerate = (invite: Invite) =>
+    confirm(`Create a new link for ${invite.email}? The old link will stop working.`) &&
+    action.run(
+      `regen:${invite.email}`,
+      async () => {
+        const { data, error } = await supabase.rpc('regenerate_invite', { p_email: invite.email })
+        if (error || !data) return { error: error ?? { message: 'Could not regenerate the link.' } }
+        setLink({ email: invite.email, token: data, expiresAt: inSevenDays() })
+      },
+      'New link created. The old one no longer works.',
+    )
 
   const nameOf = (id: string | null) => members.find((m) => m.id === id)?.full_name ?? 'the president or advisor'
 
@@ -112,17 +124,33 @@ function Roster({ me }: { me: Profile }) {
         )}
       </div>
 
-      {error && <Alert>{error}</Alert>}
+      <ActionStatus status={action.status} />
 
       {teamId && (canManage('member') || canManage('leader')) && (
         <AddInvite
           teamId={teamId}
           allowLeader={managesAll}
-          onAdded={async (invite) => {
-            await load()
-            await showLink(invite)
-          }}
-          onError={setError}
+          busy={busy}
+          saving={action.busy === 'invite'}
+          onSubmit={(email, role) =>
+            action.run(
+              'invite',
+              async () => {
+                const { data, error } = await supabase
+                  .from('roster_invites')
+                  .insert({ email, team_id: teamId, role })
+                  .select()
+                  .single()
+                if (error) {
+                  return { error: { message: error.code === '23505' ? 'That email already has an invite.' : error.message } }
+                }
+                const { data: token, error: e2 } = await supabase.rpc('invite_token', { p_email: data.email })
+                if (e2 || !token) return { error: e2 ?? { message: 'Invite created, but the link could not be shown.' } }
+                setLink({ email: data.email, token, expiresAt: data.expires_at })
+              },
+              'Invite created',
+            )
+          }
         />
       )}
 
@@ -144,16 +172,27 @@ function Roster({ me }: { me: Profile }) {
               </div>
               {manage && (
                 <div className="flex flex-wrap gap-2">
-                  {days > 0 && <SmallButton onClick={() => showLink(inv)}>Copy invite link</SmallButton>}
-                  <SmallButton onClick={() => regenerate(inv)}>Regenerate</SmallButton>
+                  {days > 0 && (
+                    <SmallButton disabled={busy} onClick={() => showLink(inv)}>
+                      {label(`link:${inv.email}`, 'Copy invite link')}
+                    </SmallButton>
+                  )}
+                  <SmallButton disabled={busy} onClick={() => regenerate(inv)}>
+                    {label(`regen:${inv.email}`, 'Regenerate')}
+                  </SmallButton>
                   <SmallButton
                     tone="danger"
+                    disabled={busy}
                     onClick={() =>
                       confirm(`Remove the invite for ${inv.email}?`) &&
-                      run(() => supabase.from('roster_invites').delete().eq('email', inv.email))
+                      action.run(
+                        `remove:${inv.email}`,
+                        () => changed(supabase.from('roster_invites').delete().eq('email', inv.email).select('email')),
+                        'Invite removed',
+                      )
                     }
                   >
-                    Remove
+                    {label(`remove:${inv.email}`, 'Remove')}
                   </SmallButton>
                 </div>
               )}
@@ -187,31 +226,41 @@ function Roster({ me }: { me: Profile }) {
                 <div className="flex flex-wrap gap-2">
                   {managesAll && m.active && (
                     <SmallButton
+                      disabled={busy}
                       onClick={() =>
                         confirm(`Make ${m.full_name} a ${m.role === 'leader' ? 'member' : 'leader'}?`) &&
-                        run(() =>
-                          supabase.rpc('set_member_role', {
-                            p_user: m.id,
-                            p_role: m.role === 'leader' ? 'member' : 'leader',
-                          }),
+                        action.run(
+                          `role:${m.id}`,
+                          () =>
+                            supabase.rpc('set_member_role', {
+                              p_user: m.id,
+                              p_role: m.role === 'leader' ? 'member' : 'leader',
+                            }),
+                          `${m.full_name} is now a ${m.role === 'leader' ? 'member' : 'leader'}`,
                         )
                       }
                     >
-                      {m.role === 'leader' ? 'Make member' : 'Make leader'}
+                      {label(`role:${m.id}`, m.role === 'leader' ? 'Make member' : 'Make leader')}
                     </SmallButton>
                   )}
                   <SmallButton
+                    disabled={busy}
                     onClick={() =>
                       confirm(
                         m.active
                           ? `Remove ${m.full_name} from the team? They lose access right away. Their pitches and trades stay.`
                           : `Give ${m.full_name} access again?`,
-                      ) && run(() => supabase.rpc('set_member_active', { p_user: m.id, p_active: !m.active }))
+                      ) &&
+                      action.run(
+                        `active:${m.id}`,
+                        () => supabase.rpc('set_member_active', { p_user: m.id, p_active: !m.active }),
+                        m.active ? `${m.full_name} removed from the team` : `${m.full_name}'s access restored`,
+                      )
                     }
                   >
-                    {m.active ? 'Remove from team' : 'Restore access'}
+                    {label(`active:${m.id}`, m.active ? 'Remove from team' : 'Restore access')}
                   </SmallButton>
-                  <SmallButton tone="danger" onClick={() => setRevoking(m)}>
+                  <SmallButton tone="danger" disabled={busy} onClick={() => setRevoking(m)}>
                     Revoke & reissue
                   </SmallButton>
                 </div>
@@ -242,10 +291,11 @@ function Roster({ me }: { me: Profile }) {
           member={revoking}
           onClose={() => setRevoking(null)}
           onRevoked={async (token) => {
-            const email = revoking.email
-            setRevoking(null)
+            const { email, full_name } = revoking
             await load()
-            setLink({ email, token, expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString() })
+            setRevoking(null)
+            action.notify('success', `${full_name}'s account was deleted. Send the new link below.`)
+            setLink({ email, token, expiresAt: inSevenDays() })
           }}
         />
       )}
@@ -254,37 +304,27 @@ function Roster({ me }: { me: Profile }) {
 }
 
 function AddInvite({
-  teamId,
   allowLeader,
-  onAdded,
-  onError,
+  busy,
+  saving,
+  onSubmit,
 }: {
   teamId: string
   allowLeader: boolean
-  onAdded: (invite: Invite) => Promise<void>
-  onError: (msg: string | null) => void
+  busy: boolean
+  saving: boolean
+  onSubmit: (email: string, role: AppRole) => Promise<boolean>
 }) {
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<AppRole>('member')
-  const [loading, setLoading] = useState(false)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    onError(null)
-    setLoading(true)
-    const { data, error } = await supabase
-      .from('roster_invites')
-      .insert({ email: email.trim(), team_id: teamId, role })
-      .select()
-      .single()
-    setLoading(false)
-    if (error) {
-      onError(error.code === '23505' ? 'That email already has an invite.' : error.message)
-      return
+    if (busy) return
+    if (await onSubmit(email.trim(), role)) {
+      setEmail('')
+      setRole('member')
     }
-    setEmail('')
-    setRole('member')
-    await onAdded(data)
   }
 
   return (
@@ -311,7 +351,7 @@ function AddInvite({
           ))}
         </fieldset>
       )}
-      <Button type="submit" loading={loading}>
+      <Button type="submit" disabled={busy} loading={saving}>
         Create invite link
       </Button>
     </form>
@@ -379,12 +419,20 @@ function RevokeDialog({
   const [error, setError] = useState<string | null>(null)
   const confirmed = sameName(typed, member.full_name)
 
+  const submitting = useRef(false) // synchronous guard against a fast double tap
+
   async function revoke() {
+    if (submitting.current) return
+    submitting.current = true
     setLoading(true)
     setError(null)
     const { data, error } = await supabase.rpc('revoke_and_reissue', { p_email: member.email })
-    setLoading(false)
-    if (error || !data) return setError(error?.message ?? 'Could not revoke.')
+    if (error || !data) {
+      submitting.current = false
+      setLoading(false)
+      return setError(error?.message ?? 'Could not revoke.')
+    }
+    // Stay disabled until the roster has reloaded and the dialog closes.
     await onRevoked(data)
   }
 
@@ -435,5 +483,5 @@ function SmallButton({
   ...props
 }: { tone?: 'neutral' | 'danger' } & ButtonHTMLAttributes<HTMLButtonElement>) {
   const styles = tone === 'danger' ? 'text-red-700 ring-red-200 hover:bg-red-50' : 'text-slate-800 ring-slate-300 hover:bg-slate-50'
-  return <button className={`rounded-lg px-3 py-2 text-sm font-medium ring-1 bg-white ${styles}`} {...props} />
+  return <button className={`rounded-lg px-3 py-2 text-sm font-medium ring-1 bg-white disabled:opacity-60 ${styles}`} {...props} />
 }

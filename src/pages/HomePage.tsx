@@ -4,6 +4,8 @@ import type { Database } from '../lib/database.types'
 import { formatDateTime } from '../lib/format'
 import { Link } from '../lib/router'
 import { supabase } from '../lib/supabase'
+import { ActionStatus, changed, useAction } from '../lib/useAction'
+import { useLatest } from '../lib/useLatest'
 import { useTeamContent } from '../lib/useTeamContent'
 
 type Deadline = Database['public']['Tables']['deadlines']['Row']
@@ -26,7 +28,6 @@ export default function HomePage() {
   const [names, setNames] = useState<Map<string, string>>(new Map())
   const [awaiting, setAwaiting] = useState(0)
   const [tradesThisWeek, setTradesThisWeek] = useState(0)
-  const [error, setError] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
 
   // Tick once a minute so the countdowns stay current on an open screen.
@@ -35,8 +36,11 @@ export default function HomePage() {
     return () => clearInterval(id)
   }, [])
 
+  const begin = useLatest()
+
   const load = useCallback(async () => {
     if (!teamId) return
+    const isLatest = begin()
     const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString()
     const [d, s, n, p, t] = await Promise.all([
       supabase.from('deadlines').select('*').or(`team_id.is.null,team_id.eq.${teamId}`).order('due_at'),
@@ -50,23 +54,33 @@ export default function HomePage() {
         .is('voided_at', null)
         .gte('created_at', weekAgo),
     ])
+    if (!isLatest()) return // an older, slower load must not overwrite a newer one
     setDeadlines(d.data ?? [])
     setSubmissions(s.data ?? [])
     setNames(new Map((n.data ?? []).map((x) => [x.id, x.full_name])))
     setAwaiting(p.count ?? 0)
     setTradesThisWeek(t.count ?? 0)
-  }, [teamId])
+  }, [teamId, begin])
 
   useEffect(() => {
     load()
   }, [load])
 
-  async function run(action: () => PromiseLike<{ error: { message: string } | null }>) {
-    setError(null)
-    const { error } = await action()
-    if (error) setError(error.message)
-    await load()
-  }
+  // Every deadline action: one at a time, buttons disabled meanwhile, then
+  // the screen reloads and shows a success or error message.
+  const action = useAction(load)
+
+  const toggle = (d: Deadline, submitted: boolean) =>
+    action.run(
+      `toggle:${d.id}`,
+      () =>
+        changed(
+          submitted
+            ? supabase.from('deadline_submissions').delete().eq('team_id', teamId!).eq('deadline_id', d.id).select('deadline_id')
+            : supabase.from('deadline_submissions').insert({ team_id: teamId!, deadline_id: d.id }).select('deadline_id'),
+        ),
+      submitted ? `"${d.title}" marked not submitted` : `"${d.title}" marked submitted`,
+    )
 
   if (!me) return null
   const official = deadlines.filter((d) => d.team_id === null)
@@ -84,7 +98,7 @@ export default function HomePage() {
         {picker}
       </div>
 
-      {error && <Alert>{error}</Alert>}
+      <ActionStatus status={action.status} />
 
       {team?.is_sandbox && (
         <Alert tone="info">
@@ -107,13 +121,8 @@ export default function HomePage() {
                 submission={submissions.find((s) => s.deadline_id === d.id)}
                 submittedBy={(id) => (id && names.get(id)) || 'Removed user'}
                 isLeader={isLeader}
-                onToggle={(sub) =>
-                  run(() =>
-                    sub
-                      ? supabase.from('deadline_submissions').delete().eq('team_id', teamId!).eq('deadline_id', d.id)
-                      : supabase.from('deadline_submissions').insert({ team_id: teamId!, deadline_id: d.id }),
-                  )
-                }
+                busyKey={action.busy}
+                onToggle={(sub) => toggle(d, sub)}
                 big
               />
             ))}
@@ -135,23 +144,35 @@ export default function HomePage() {
               submission={submissions.find((s) => s.deadline_id === d.id)}
               submittedBy={(id) => (id && names.get(id)) || 'Removed user'}
               isLeader={isLeader}
-              onToggle={(sub) =>
-                run(() =>
-                  sub
-                    ? supabase.from('deadline_submissions').delete().eq('team_id', teamId!).eq('deadline_id', d.id)
-                    : supabase.from('deadline_submissions').insert({ team_id: teamId!, deadline_id: d.id }),
-                )
-              }
+              busyKey={action.busy}
+              onToggle={(sub) => toggle(d, sub)}
               onDelete={
                 isLeader
                   ? () =>
-                      confirm(`Delete "${d.title}"?`) && run(() => supabase.from('deadlines').delete().eq('id', d.id))
+                      confirm(`Delete "${d.title}"?`) &&
+                      action.run(
+                        `delete:${d.id}`,
+                        () => changed(supabase.from('deadlines').delete().eq('id', d.id).select('id')),
+                        `"${d.title}" deleted`,
+                      )
                   : undefined
               }
             />
           ))}
         </div>
-        {isLeader && teamId && <AddDeadline teamId={teamId} onAdded={load} />}
+        {isLeader && teamId && (
+          <AddDeadline
+            busy={action.busy !== null}
+            saving={action.busy === 'add-deadline'}
+            onSubmit={(title, due) =>
+              action.run(
+                'add-deadline',
+                () => supabase.from('deadlines').insert({ team_id: teamId, title, due_at: due }),
+                `"${title}" added`,
+              )
+            }
+          />
+        )}
       </section>
 
       <section className="grid grid-cols-2 gap-3">
@@ -185,6 +206,7 @@ function DeadlineCard({
   submission,
   submittedBy,
   isLeader,
+  busyKey,
   onToggle,
   onDelete,
   big,
@@ -194,6 +216,7 @@ function DeadlineCard({
   submission?: Submission
   submittedBy: (id: string | null) => string
   isLeader: boolean
+  busyKey: string | null
   onToggle: (currentlySubmitted: boolean) => void
   onDelete?: () => void
   big?: boolean
@@ -223,13 +246,21 @@ function DeadlineCard({
       {(isLeader || onDelete) && (
         <div className="flex gap-3 text-sm">
           {isLeader && (
-            <button onClick={() => onToggle(!!submission)} className="font-medium text-slate-900 hover:underline">
-              {submission ? 'Undo submitted' : 'Mark submitted'}
+            <button
+              disabled={busyKey !== null}
+              onClick={() => onToggle(!!submission)}
+              className="font-medium text-slate-900 hover:underline disabled:opacity-50"
+            >
+              {busyKey === `toggle:${d.id}` ? 'Saving…' : submission ? 'Undo submitted' : 'Mark submitted'}
             </button>
           )}
           {onDelete && (
-            <button onClick={onDelete} className="font-medium text-red-700 hover:underline">
-              Delete
+            <button
+              disabled={busyKey !== null}
+              onClick={onDelete}
+              className="font-medium text-red-700 hover:underline disabled:opacity-50"
+            >
+              {busyKey === `delete:${d.id}` ? 'Saving…' : 'Delete'}
             </button>
           )}
         </div>
@@ -238,25 +269,28 @@ function DeadlineCard({
   )
 }
 
-function AddDeadline({ teamId, onAdded }: { teamId: string; onAdded: () => Promise<void> }) {
+function AddDeadline({
+  busy,
+  saving,
+  onSubmit,
+}: {
+  busy: boolean
+  saving: boolean
+  onSubmit: (title: string, dueIso: string) => Promise<boolean>
+}) {
   const [title, setTitle] = useState('')
   const [date, setDate] = useState('')
   const [time, setTime] = useState('17:00')
-  const [error, setError] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
 
   async function submit(e: FormEvent) {
     e.preventDefault()
-    setSaving(true)
-    setError(null)
+    if (busy) return
     // The browser turns local date + time into an exact moment.
     const due = new Date(`${date}T${time || '17:00'}`).toISOString()
-    const { error } = await supabase.from('deadlines').insert({ team_id: teamId, title: title.trim(), due_at: due })
-    setSaving(false)
-    if (error) return setError(error.message)
-    setTitle('')
-    setDate('')
-    await onAdded()
+    if (await onSubmit(title.trim(), due)) {
+      setTitle('')
+      setDate('')
+    }
   }
 
   return (
@@ -267,8 +301,7 @@ function AddDeadline({ teamId, onAdded }: { teamId: string; onAdded: () => Promi
         <Field label="Date" type="date" required value={date} onChange={(e) => setDate(e.target.value)} />
         <Field label="Time" type="time" value={time} onChange={(e) => setTime(e.target.value)} />
       </div>
-      {error && <Alert>{error}</Alert>}
-      <Button type="submit" variant="secondary" disabled={!title.trim() || !date} loading={saving}>
+      <Button type="submit" variant="secondary" disabled={!title.trim() || !date || busy} loading={saving}>
         Add deadline
       </Button>
     </form>

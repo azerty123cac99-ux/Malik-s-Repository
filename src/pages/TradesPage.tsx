@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Modal from '../components/Modal'
-import PositionsCard from '../components/PositionsCard'
+import PositionsCard, { type PositionRow, type TotalsRow } from '../components/PositionsCard'
 import { Alert, Button, TextArea } from '../components/ui'
-import { formatDateTime } from '../lib/format'
+import { formatDateTime, friendlyError } from '../lib/format'
 import { money, pct, positionPercentAfterEachTrade, type Trade } from '../lib/portfolio'
+import { ActionStatus, useFlash } from '../lib/useAction'
+import { useLatest } from '../lib/useLatest'
 import { Link } from '../lib/router'
 import { supabase } from '../lib/supabase'
 import { useTeamContent } from '../lib/useTeamContent'
@@ -17,11 +19,22 @@ export default function TradesPage() {
   const [names, setNames] = useState<Names>(new Map())
   const [pitchTickers, setPitchTickers] = useState<Map<string, string>>(new Map())
   const [voiding, setVoiding] = useState<Trade | null>(null)
-  const [reloadKey, setReloadKey] = useState(0)
+  const [positions, setPositions] = useState<PositionRow[]>([])
+  const [totals, setTotals] = useState<TotalsRow | null>(null)
+  const arrived = useFlash() // "Trade saved" after logging a trade
+  const [voided, setVoided] = useState(false)
+  const begin = useLatest()
+
+  useEffect(() => {
+    if (!voided) return
+    const t = setTimeout(() => setVoided(false), 4000)
+    return () => clearTimeout(t)
+  }, [voided])
 
   const load = useCallback(async () => {
     if (!teamId) return
-    const [t, p, pi] = await Promise.all([
+    const isLatest = begin()
+    const [t, p, pi, pos, tot] = await Promise.all([
       supabase
         .from('trades')
         .select('*')
@@ -30,12 +43,16 @@ export default function TradesPage() {
         .order('created_at', { ascending: false }),
       supabase.from('profiles').select('id, full_name'),
       supabase.from('pitches').select('id, ticker').eq('team_id', teamId),
+      supabase.from('positions').select('*').eq('team_id', teamId).order('ticker'),
+      supabase.from('portfolio_totals').select('*').eq('team_id', teamId).maybeSingle(),
     ])
+    if (!isLatest()) return // a newer load started (e.g. after a void); keep its result
     setTrades(t.data ?? [])
     setNames(new Map((p.data ?? []).map((x) => [x.id, x.full_name])))
     setPitchTickers(new Map((pi.data ?? []).map((x) => [x.id, x.ticker])))
-    setReloadKey((k) => k + 1)
-  }, [teamId])
+    setPositions(pos.data ?? [])
+    setTotals(tot.data)
+  }, [teamId, begin])
 
   useEffect(() => {
     load()
@@ -67,7 +84,9 @@ export default function TradesPage() {
         )}
       </div>
 
-      {teamId && trades.length > 0 && <PositionsCard teamId={teamId} reloadKey={reloadKey} />}
+      <ActionStatus status={voided ? { tone: 'success', text: 'Trade voided' } : arrived} />
+
+      {trades.length > 0 && <PositionsCard positions={positions} totals={totals} />}
 
       {trades.length === 0 && (
         <p className="bg-white rounded-2xl ring-1 ring-slate-200 p-4 text-sm text-slate-500">
@@ -106,8 +125,9 @@ export default function TradesPage() {
           trade={voiding}
           onClose={() => setVoiding(null)}
           onVoided={async () => {
-            setVoiding(null)
             await load()
+            setVoiding(null)
+            setVoided(true)
           }}
         />
       )}
@@ -182,13 +202,20 @@ function VoidDialog({ trade, onClose, onVoided }: { trade: Trade; onClose: () =>
   const [reason, setReason] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const submitting = useRef(false) // synchronous guard against a fast double tap
 
   async function submit() {
+    if (submitting.current) return
+    submitting.current = true
     setLoading(true)
     setError(null)
     const { error } = await supabase.rpc('void_trade', { p_trade: trade.id, p_reason: reason })
-    setLoading(false)
-    if (error) return setError(error.message)
+    if (error) {
+      submitting.current = false
+      setLoading(false)
+      return setError(friendlyError(error.message))
+    }
+    // Stay disabled until the list has refreshed and the dialog closes.
     await onVoided()
   }
 

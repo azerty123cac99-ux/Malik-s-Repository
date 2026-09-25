@@ -659,6 +659,7 @@ export type Database = {
       }
       trades: {
         Row: {
+          client_request_id: string | null
           created_at: string
           id: string
           pitch_id: string | null
@@ -675,6 +676,7 @@ export type Database = {
           voided_by: string | null
         }
         Insert: {
+          client_request_id?: string | null
           created_at?: string
           id?: string
           pitch_id?: string | null
@@ -691,6 +693,7 @@ export type Database = {
           voided_by?: string | null
         }
         Update: {
+          client_request_id?: string | null
           created_at?: string
           id?: string
           pitch_id?: string | null

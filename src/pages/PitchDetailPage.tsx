@@ -2,11 +2,13 @@ import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from
 import StageBadge from '../components/StageBadge'
 import { Alert, Button, TextArea } from '../components/ui'
 import type { Database } from '../lib/database.types'
-import { formatDate, formatDateTime, friendlyError } from '../lib/format'
+import { formatDate, formatDateTime } from '../lib/format'
 import { ASSET_LABEL } from '../lib/labels'
 import { money } from '../lib/portfolio'
 import { Link } from '../lib/router'
 import { supabase } from '../lib/supabase'
+import { ActionStatus, changed, useAction, useFlash } from '../lib/useAction'
+import { useLatest } from '../lib/useLatest'
 import { useTeamContent } from '../lib/useTeamContent'
 
 type Pitch = Database['public']['Views']['pitch_board']['Row']
@@ -20,28 +22,35 @@ export default function PitchDetailPage({ pitchId }: { pitchId: string }) {
   const [trades, setTrades] = useState<Trade[]>([])
   const [objective, setObjective] = useState<string | null>(null)
   const [names, setNames] = useState<Map<string, string>>(new Map())
-  const [error, setError] = useState<string | null>(null)
+  const begin = useLatest()
 
   const load = useCallback(async () => {
+    const isLatest = begin()
     const [p, c, t, n] = await Promise.all([
       supabase.from('pitch_board').select('*').eq('id', pitchId).maybeSingle(),
       supabase.from('pitch_comments').select('*').eq('pitch_id', pitchId).order('created_at'),
       supabase.from('trades').select('*').eq('pitch_id', pitchId).order('trade_date'),
       supabase.from('profiles').select('id, full_name'),
     ])
+    const objective = p.data?.objective_id
+      ? (await supabase.from('client_objectives').select('text').eq('id', p.data.objective_id).maybeSingle()).data
+      : null
+    if (!isLatest()) return // a newer load started (e.g. after a vote); keep its result
     setPitch(p.data)
     setComments(c.data ?? [])
     setTrades(t.data ?? [])
     setNames(new Map((n.data ?? []).map((x) => [x.id, x.full_name])))
-    if (p.data?.objective_id) {
-      const { data } = await supabase.from('client_objectives').select('text').eq('id', p.data.objective_id).maybeSingle()
-      setObjective(data?.text ?? null)
-    } else setObjective(null)
-  }, [pitchId])
+    setObjective(objective?.text ?? null)
+  }, [pitchId, begin])
 
   useEffect(() => {
     load()
   }, [load])
+
+  // Every write on this page: one at a time, buttons disabled meanwhile,
+  // then the page reloads and shows a success or error message.
+  const action = useAction(load)
+  const arrived = useFlash() // e.g. "Pitch saved" after the edit form
 
   if (pitch === undefined) return null
   if (pitch === null) return <Alert>Pitch not found.</Alert>
@@ -51,16 +60,16 @@ export default function PitchDetailPage({ pitchId }: { pitchId: string }) {
   const isAuthor = pitch.created_by === me?.id
   const canEdit = canWrite && (isLeader || (isAuthor && (pitch.stage === 'idea' || pitch.stage === 'pitched')))
 
-  async function run(action: () => PromiseLike<{ error: { message: string } | null }>) {
-    setError(null)
-    const { error } = await action()
-    if (error) setError(friendlyError(error.message))
-    await load()
-  }
-  const setStage = (stage: Pitch['stage'] & string) =>
-    run(() => supabase.from('pitches').update({ stage }).eq('id', pitchId))
-  const vote = (value: number | null) =>
-    run(() => supabase.rpc('cast_vote', { p_pitch: pitchId, p_value: value as number }))
+  const busy = action.busy !== null
+  const setStage = (key: string, stage: Pitch['stage'] & string, done: string) =>
+    action.run(key, () => changed(supabase.from('pitches').update({ stage }).eq('id', pitchId).select('id')), done)
+  const vote = (key: string, value: number | null) =>
+    action.run(
+      key,
+      () => supabase.rpc('cast_vote', { p_pitch: pitchId, p_value: value as number }),
+      value === null ? 'Vote removed' : 'Vote saved',
+    )
+  const label = (key: string, text: string) => (action.busy === key ? 'Saving…' : text)
 
   return (
     <div className="space-y-5 max-w-2xl">
@@ -78,8 +87,6 @@ export default function PitchDetailPage({ pitchId }: { pitchId: string }) {
         </div>
         <StageBadge stage={pitch.display_stage ?? 'idea'} />
       </div>
-
-      {error && <Alert>{error}</Alert>}
 
       <Section title="Thesis">
         <p className="whitespace-pre-wrap">{pitch.thesis}</p>
@@ -117,15 +124,21 @@ export default function PitchDetailPage({ pitchId }: { pitchId: string }) {
       {/* Actions */}
       {canWrite && (
         <div className="flex flex-wrap gap-2">
-          <VoteButton label="Vote up" active={pitch.my_vote === 1} onClick={() => vote(pitch.my_vote === 1 ? null : 1)}>
-            ▲ {pitch.up_votes}
+          <VoteButton
+            label="Vote up"
+            active={pitch.my_vote === 1}
+            disabled={busy}
+            onClick={() => vote('up', pitch.my_vote === 1 ? null : 1)}
+          >
+            {action.busy === 'up' ? 'Saving…' : `▲ ${pitch.up_votes}`}
           </VoteButton>
           <VoteButton
             label="Vote down"
             active={pitch.my_vote === -1}
-            onClick={() => vote(pitch.my_vote === -1 ? null : -1)}
+            disabled={busy}
+            onClick={() => vote('down', pitch.my_vote === -1 ? null : -1)}
           >
-            ▼ {pitch.down_votes}
+            {action.busy === 'down' ? 'Saving…' : `▼ ${pitch.down_votes}`}
           </VoteButton>
           {canEdit && (
             <Link
@@ -138,31 +151,42 @@ export default function PitchDetailPage({ pitchId }: { pitchId: string }) {
           {isLeader && pitch.stage === 'pitched' && (
             <>
               <button
-                onClick={() => setStage('approved')}
-                className="rounded-lg px-3 py-2 text-sm font-semibold bg-emerald-700 text-white"
+                disabled={busy}
+                onClick={() => setStage('approve', 'approved', 'Pitch approved')}
+                className="rounded-lg px-3 py-2 text-sm font-semibold bg-emerald-700 text-white disabled:opacity-60"
               >
-                Approve
+                {label('approve', 'Approve')}
               </button>
               <button
-                onClick={() => confirm(`Reject ${pitch.ticker}?`) && setStage('rejected')}
-                className="rounded-lg px-3 py-2 text-sm font-semibold ring-1 ring-red-200 text-red-700 bg-white"
+                disabled={busy}
+                onClick={() => confirm(`Reject ${pitch.ticker}?`) && setStage('reject', 'rejected', 'Pitch rejected')}
+                className="rounded-lg px-3 py-2 text-sm font-semibold ring-1 ring-red-200 text-red-700 bg-white disabled:opacity-60"
               >
-                Reject
+                {label('reject', 'Reject')}
               </button>
             </>
           )}
           {isLeader && pitch.stage === 'rejected' && (
-            <button onClick={() => setStage('pitched')} className="rounded-lg px-3 py-2 text-sm ring-1 ring-slate-300 bg-white">
-              Reopen as pitch
+            <button
+              disabled={busy}
+              onClick={() => setStage('reopen', 'pitched', 'Pitch reopened')}
+              className="rounded-lg px-3 py-2 text-sm ring-1 ring-slate-300 bg-white disabled:opacity-60"
+            >
+              {label('reopen', 'Reopen as pitch')}
             </button>
           )}
           {isLeader && pitch.stage === 'approved' && trades.every((t) => t.voided_at) && (
-            <button onClick={() => setStage('pitched')} className="rounded-lg px-3 py-2 text-sm ring-1 ring-slate-300 bg-white">
-              Undo approval
+            <button
+              disabled={busy}
+              onClick={() => setStage('unapprove', 'pitched', 'Approval undone')}
+              className="rounded-lg px-3 py-2 text-sm ring-1 ring-slate-300 bg-white disabled:opacity-60"
+            >
+              {label('unapprove', 'Undo approval')}
             </button>
           )}
         </div>
       )}
+      <ActionStatus status={action.status ?? arrived} />
       {!canWrite && (
         <p className="text-sm text-slate-500">
           ▲ {pitch.up_votes} · ▼ {pitch.down_votes}
@@ -200,35 +224,46 @@ export default function PitchDetailPage({ pitchId }: { pitchId: string }) {
             </li>
           ))}
         </ul>
-        {canWrite && <CommentForm pitchId={pitchId} teamId={pitch.team_id!} onPosted={load} />}
+        {canWrite && (
+          <CommentForm
+            busy={busy}
+            saving={action.busy === 'comment'}
+            onPost={(body) =>
+              action.run(
+                'comment',
+                // team_id is re-set by the server; sent because the type requires it
+                () => supabase.from('pitch_comments').insert({ pitch_id: pitchId, team_id: pitch.team_id!, body }),
+                'Comment posted',
+              )
+            }
+          />
+        )}
       </Section>
     </div>
   )
 }
 
-function CommentForm({ pitchId, teamId, onPosted }: { pitchId: string; teamId: string; onPosted: () => Promise<void> }) {
+function CommentForm({
+  busy,
+  saving,
+  onPost,
+}: {
+  busy: boolean
+  saving: boolean
+  onPost: (body: string) => Promise<boolean>
+}) {
   const [body, setBody] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   async function submit(e: FormEvent) {
     e.preventDefault()
-    setSaving(true)
-    setError(null)
-    const { error } = await supabase
-      .from('pitch_comments')
-      .insert({ pitch_id: pitchId, team_id: teamId, body: body.trim() }) // server re-sets team and author
-    setSaving(false)
-    if (error) return setError(error.message)
-    setBody('')
-    await onPosted()
+    if (busy || !body.trim()) return
+    if (await onPost(body.trim())) setBody('') // keep the text if it failed
   }
 
   return (
     <form onSubmit={submit} className="space-y-2 pt-3">
       <TextArea label="Add a comment" rows={2} value={body} onChange={(e) => setBody(e.target.value)} />
-      {error && <Alert>{error}</Alert>}
-      <Button type="submit" variant="secondary" disabled={!body.trim()} loading={saving}>
+      <Button type="submit" variant="secondary" disabled={!body.trim() || busy} loading={saving}>
         Post comment
       </Button>
     </form>
@@ -251,11 +286,13 @@ function Missing() {
 function VoteButton({
   label,
   active,
+  disabled,
   onClick,
   children,
 }: {
   label: string
   active: boolean
+  disabled: boolean
   onClick: () => void
   children: ReactNode
 }) {
@@ -263,8 +300,9 @@ function VoteButton({
     <button
       aria-label={label}
       aria-pressed={active}
+      disabled={disabled}
       onClick={onClick}
-      className={`rounded-lg px-3 py-2 text-sm font-semibold ring-1 tabular-nums ${
+      className={`rounded-lg px-3 py-2 text-sm font-semibold ring-1 tabular-nums disabled:opacity-60 ${
         active ? 'bg-slate-900 text-white ring-slate-900' : 'bg-white ring-slate-300'
       }`}
     >

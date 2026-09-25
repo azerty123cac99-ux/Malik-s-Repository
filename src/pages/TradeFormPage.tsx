@@ -1,9 +1,10 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Alert, Button, Field, TextArea } from '../components/ui'
 import { formatDate, friendlyError } from '../lib/format'
 import { holdings, money, pct, positionPercentAfterEachTrade, type Trade } from '../lib/portfolio'
 import { Link, navigate } from '../lib/router'
 import { supabase } from '../lib/supabase'
+import { withFlash } from '../lib/useAction'
 import { useTeamContent } from '../lib/useTeamContent'
 
 type ApprovedPitch = { id: string; ticker: string; thesis: string; display_stage: string; decided_at: string | null }
@@ -25,22 +26,33 @@ export default function TradeFormPage() {
   const [rationale, setRationale] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  // One ID per opened form. If this form is submitted twice (double tap,
+  // slow network), the database's unique constraint stops a second trade.
+  const [requestId] = useState(() => crypto.randomUUID())
+  const submitting = useRef(false) // synchronous guard against a fast double tap
 
   useEffect(() => {
     if (!teamId) return
-    supabase
-      .from('trades')
-      .select('*')
-      .eq('team_id', teamId)
-      .then(({ data }) => setTrades(data ?? []))
-    // Only approved pitches can be linked (the database enforces this too).
-    supabase
-      .from('pitch_board')
-      .select('id, ticker, thesis, display_stage, decided_at')
-      .eq('team_id', teamId)
-      .eq('stage', 'approved')
-      .order('ticker')
-      .then(({ data }) => setPitches((data ?? []) as ApprovedPitch[]))
+    let current = true
+    Promise.all([
+      supabase.from('trades').select('*').eq('team_id', teamId),
+      // Only approved pitches can be linked (the database enforces this too).
+      supabase
+        .from('pitch_board')
+        .select('id, ticker, thesis, display_stage, decided_at')
+        .eq('team_id', teamId)
+        .eq('stage', 'approved')
+        .order('ticker'),
+    ]).then(([t, p]) => {
+      if (!current) return
+      setTrades(t.data ?? [])
+      setPitches((p.data ?? []) as ApprovedPitch[])
+      setLoaded(true)
+    })
+    return () => {
+      current = false
+    }
   }, [teamId])
 
   const cleanTicker = ticker.trim().toUpperCase()
@@ -102,11 +114,13 @@ export default function TradeFormPage() {
       : null
 
   const pitchOk = sellMustLink.length === 0 || sellMustLink.some((p) => p.id === pitchId)
-  const canSave = canWrite && cleanTicker && numbersOk && pitchOk && rationale.trim().length > 0
+  // Wait for the pitch list: saving earlier could silently drop the pitch link.
+  const canSave = loaded && canWrite && cleanTicker && numbersOk && pitchOk && rationale.trim().length > 0
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    if (!canSave || !teamId) return
+    if (!canSave || !teamId || submitting.current) return
+    submitting.current = true
     setSaving(true)
     setError(null)
     const { error } = await supabase.from('trades').insert({
@@ -118,10 +132,16 @@ export default function TradeFormPage() {
       price: px,
       pitch_id: pitchId || null,
       rationale: rationale.trim(),
+      client_request_id: requestId,
     })
-    setSaving(false)
-    if (error) return setError(friendlyError(error.message))
-    navigate('/trades')
+    // A duplicate request ID means this exact form was already saved.
+    const alreadySaved = error?.code === '23505' && /client_request_id/.test(error.message)
+    if (error && !alreadySaved) {
+      submitting.current = false
+      setSaving(false)
+      return setError(friendlyError(error.message))
+    }
+    navigate(withFlash('/trades', 'Trade saved'))
   }
 
   if (!canWrite) return <Alert tone="info">Only members of this team can log trades.</Alert>
@@ -245,7 +265,7 @@ export default function TradeFormPage() {
       {error && <Alert>{error}</Alert>}
 
       <Button type="submit" disabled={!canSave} loading={saving}>
-        {!pitchOk ? 'Choose a pitch to save' : rationale.trim() ? 'Save trade' : 'Add a rationale to save'}
+        {!loaded ? 'Loading…' : !pitchOk ? 'Choose a pitch to save' : rationale.trim() ? 'Save trade' : 'Add a rationale to save'}
       </Button>
     </form>
   )

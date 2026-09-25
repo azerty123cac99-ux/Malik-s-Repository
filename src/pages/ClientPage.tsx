@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Alert, Button, Field, TextArea } from '../components/ui'
 import type { Database } from '../lib/database.types'
 import { formatDateTime } from '../lib/format'
 import { ASSET_CLASSES, type AssetClass } from '../lib/labels'
 import { supabase } from '../lib/supabase'
+import { ActionStatus, changed, useAction } from '../lib/useAction'
+import { useLatest } from '../lib/useLatest'
 import { useTeamContent } from '../lib/useTeamContent'
 
 type Profile = Database['public']['Tables']['client_profiles']['Row']
@@ -22,22 +24,27 @@ export default function ClientPage() {
   const [editing, setEditing] = useState(false)
   const [editorName, setEditorName] = useState<string | null>(null)
 
+  const begin = useLatest()
+  const action = useAction() // only used for the "saved" message here
+
   const load = useCallback(async () => {
     if (!teamId) return
+    const isLatest = begin()
     const [p, o, l] = await Promise.all([
       supabase.from('client_profiles').select('*').eq('team_id', teamId).maybeSingle(),
       supabase.from('client_objectives').select('*').eq('team_id', teamId).order('sort_order').order('created_at'),
       supabase.from('asset_class_limits').select('*').eq('team_id', teamId),
     ])
+    const editor = p.data?.updated_by
+      ? (await supabase.from('profiles').select('full_name').eq('id', p.data.updated_by).maybeSingle()).data
+      : null
+    if (!isLatest()) return // e.g. the advisor switched teams; show only the latest team's data
     setProfile(p.data)
     setObjectives(o.data ?? [])
     setLimits(l.data ?? [])
+    setEditorName(editor?.full_name ?? null)
     setLoaded(true)
-    if (p.data?.updated_by) {
-      const { data } = await supabase.from('profiles').select('full_name').eq('id', p.data.updated_by).maybeSingle()
-      setEditorName(data?.full_name ?? null)
-    }
-  }, [teamId])
+  }, [teamId, begin])
 
   useEffect(() => {
     load()
@@ -60,15 +67,19 @@ export default function ClientPage() {
         )}
       </div>
 
+      <ActionStatus status={action.status} />
+
       {editing ? (
         <ClientForm
           teamId={teamId}
           profile={profile}
           objectives={objectives}
           limits={limits}
-          onDone={async () => {
-            setEditing(false)
+          onCancel={() => setEditing(false)}
+          onSaved={async () => {
             await load()
+            setEditing(false)
+            action.notify('success', 'Client profile saved')
           }}
         />
       ) : !profile ? (
@@ -172,13 +183,15 @@ function ClientForm({
   profile,
   objectives,
   limits,
-  onDone,
+  onCancel,
+  onSaved,
 }: {
   teamId: string
   profile: Profile | null
   objectives: Objective[]
   limits: Limit[]
-  onDone: () => Promise<void>
+  onCancel: () => void
+  onSaved: () => Promise<void>
 }) {
   const [f, setF] = useState({
     client_name: profile?.client_name ?? '',
@@ -203,16 +216,20 @@ function ClientForm({
   })
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const submitting = useRef(false) // synchronous guard against a fast double tap
 
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value })
   const num = (s: string) => (s.trim() === '' ? null : Number(s))
 
   async function save() {
+    if (submitting.current) return
+    submitting.current = true
     setSaving(true)
     setError(null)
     const fail = (msg: string) => {
       setError(msg)
       setSaving(false)
+      submitting.current = false
     }
 
     const { error: pe } = await supabase.from('client_profiles').upsert({
@@ -232,7 +249,9 @@ function ClientForm({
     const kept = objs.filter((o) => o.text.trim())
     for (const [i, o] of kept.entries()) {
       const { error } = o.id
-        ? await supabase.from('client_objectives').update({ text: o.text.trim(), sort_order: i }).eq('id', o.id)
+        ? await changed(
+            supabase.from('client_objectives').update({ text: o.text.trim(), sort_order: i }).eq('id', o.id).select('id'),
+          )
         : await supabase.from('client_objectives').insert({ team_id: teamId, text: o.text.trim(), sort_order: i })
       if (error) return fail(error.message)
     }
@@ -260,8 +279,8 @@ function ClientForm({
       }
     }
 
-    setSaving(false)
-    await onDone()
+    // Stay disabled until the saved profile has reloaded and the form closes.
+    await onSaved()
   }
 
   return (
@@ -387,7 +406,7 @@ function ClientForm({
 
       {error && <Alert>{error}</Alert>}
       <div className="grid grid-cols-2 gap-2">
-        <Button variant="secondary" onClick={onDone}>
+        <Button variant="secondary" disabled={saving} onClick={onCancel}>
           Cancel
         </Button>
         <Button loading={saving} onClick={save}>

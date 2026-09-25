@@ -17,15 +17,20 @@ export default function PipelinePage() {
 
   useEffect(() => {
     if (!teamId) return
+    let current = true // after a team switch, ignore the old team's late response
     Promise.all([
       supabase.from('pitch_board').select('*').eq('team_id', teamId).order('updated_at', { ascending: false }),
       supabase.from('client_objectives').select('id, text').eq('team_id', teamId),
       supabase.from('profiles').select('id, full_name'),
     ]).then(([p, o, n]) => {
+      if (!current) return
       setPitches(p.data ?? [])
       setObjectives(new Map((o.data ?? []).map((x) => [x.id, x.text])))
       setNames(new Map((n.data ?? []).map((x) => [x.id, x.full_name])))
     })
+    return () => {
+      current = false
+    }
   }, [teamId])
 
   const count = (s: DisplayStage) => pitches.filter((p) => p.display_stage === s).length

@@ -8,6 +8,7 @@ import { run as roster } from './e2e-roster.mjs'
 import { run as trades } from './e2e-trades.mjs'
 import { run as content } from './e2e-content.mjs'
 import { run as smoke } from './e2e-smoke.mjs'
+import { run as updates } from './e2e-updates.mjs'
 import { seedUsers } from './seed-users.mjs'
 
 await seedUsers({ skip: ['c4@demo.test', 'c5@demo.test'] })
@@ -16,4 +17,5 @@ await roster()
 await trades()
 await content()
 await smoke()
+await updates()
 process.exit(finish() ? 1 : 0)

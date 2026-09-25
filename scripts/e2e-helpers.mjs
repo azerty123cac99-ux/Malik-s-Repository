@@ -27,6 +27,15 @@ export async function newPage(browser, viewport = PHONE) {
   await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: APP })
   const page = await ctx.newPage()
   page.setDefaultTimeout(8000)
+  // E2E_LATENCY=1 simulates a slow phone connection: every database read
+  // (GET) is delayed by a random 0–1.5 s, so responses can arrive out of order.
+  if (process.env.E2E_LATENCY) {
+    await page.route('**/rest/v1/**', async (route) => {
+      if (route.request().method() === 'GET') await new Promise((r) => setTimeout(r, Math.random() * 1500))
+      await route.continue()
+    })
+    page.setDefaultTimeout(15000)
+  }
   page.errors = []
   page.on('pageerror', (e) => page.errors.push(e.message))
   page.on('dialog', (d) => d.accept()) // say OK to confirm() prompts

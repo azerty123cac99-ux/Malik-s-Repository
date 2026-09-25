@@ -141,7 +141,7 @@ function JoinForm({ invite, token }: { invite: Invite; token: string }) {
         onChange={(e) => setConfirm(e.target.value)}
       />
       {error && <Alert>{error}</Alert>}
-      <Button type="submit" loading={loading}>
+      <Button type="submit" loading={loading} loadingText="Creating account…">
         Create account
       </Button>
     </form>

@@ -88,11 +88,16 @@ export function TextArea({
 
 export function Button({
   loading,
+  loadingText = 'Saving…',
   variant = 'primary',
   children,
   className = '',
   ...props
-}: { loading?: boolean; variant?: 'primary' | 'secondary' | 'danger' } & ButtonHTMLAttributes<HTMLButtonElement>) {
+}: {
+  loading?: boolean
+  loadingText?: string
+  variant?: 'primary' | 'secondary' | 'danger'
+} & ButtonHTMLAttributes<HTMLButtonElement>) {
   const styles = {
     primary: 'bg-slate-900 text-white hover:bg-slate-800',
     secondary: 'bg-white text-slate-900 ring-1 ring-slate-300 hover:bg-slate-50',
@@ -104,7 +109,7 @@ export function Button({
       disabled={loading || props.disabled}
       {...props}
     >
-      {loading ? 'Please wait…' : children}
+      {loading ? loadingText : children}
     </button>
   )
 }
