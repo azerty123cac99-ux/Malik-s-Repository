@@ -123,7 +123,7 @@ export default function TradeFormPage() {
     submitting.current = true
     setSaving(true)
     setError(null)
-    const { error } = await supabase.from('trades').insert({
+    const row = {
       team_id: teamId,
       trade_date: date,
       ticker: cleanTicker,
@@ -132,8 +132,15 @@ export default function TradeFormPage() {
       price: px,
       pitch_id: pitchId || null,
       rationale: rationale.trim(),
-      client_request_id: requestId,
-    })
+    }
+    let { error } = await supabase.from('trades').insert({ ...row, client_request_id: requestId })
+    // Transition safety: if the database doesn't have the client_request_id
+    // column yet (the production patch hasn't been run), save without it
+    // rather than failing. The button guard still blocks double taps.
+    // TODO: remove once docs/PROD-PATCH-2026-09-27-trade-request-id.sql is applied in production.
+    if (error?.code === 'PGRST204' && /client_request_id/.test(error.message)) {
+      ;({ error } = await supabase.from('trades').insert(row))
+    }
     // A duplicate request ID means this exact form was already saved.
     const alreadySaved = error?.code === '23505' && /client_request_id/.test(error.message)
     if (error && !alreadySaved) {

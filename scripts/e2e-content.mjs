@@ -114,6 +114,8 @@ export async function run() {
     await page.getByLabel('Price per share').fill(String(price))
     if (pitchLabel) await page.getByLabel('Linked pitch').selectOption({ label: pitchLabel })
     await page.getByLabel('Rationale (required)').fill(rationale)
+    // Wait until the form has loaded its trades and pitches (Save stops saying "Loading…").
+    await page.getByRole('button', { name: /Save trade|Choose a pitch to save|Add a rationale to save/ }).waitFor()
   }
 
   await step('buying COST auto-links the one approved pitch; the pitch shows Bought', async () => {

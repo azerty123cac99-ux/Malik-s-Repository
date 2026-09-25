@@ -124,6 +124,44 @@ export async function run() {
     await mem.getByRole('row', { name: /PG\s+10/ }).waitFor()
   })
 
+  await step('before the production patch (no client_request_id column), trades still save', async () => {
+    // Simulate the old database: reject the first insert the way PostgREST
+    // does for an unknown column, and let the retry through.
+    const bodies = []
+    await mem.route('**/rest/v1/trades*', async (route) => {
+      if (route.request().method() !== 'POST') return route.continue()
+      bodies.push(route.request().postDataJSON())
+      if (bodies.length === 1) {
+        return route.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            code: 'PGRST204',
+            message: "Could not find the 'client_request_id' column of 'trades' in the schema cache",
+          }),
+        })
+      }
+      return route.continue()
+    })
+    await mem.goto(`${APP}/trades/new`)
+    await mark(mem)
+    await mem.getByLabel('Ticker').fill('KO')
+    await mem.getByLabel('Quantity').fill('1')
+    await mem.getByLabel('Price per share').fill('60')
+    await mem.getByLabel('Rationale (required)').fill('Old-database fallback check')
+    await mem.getByRole('button', { name: 'Save trade' }).click()
+    await success(mem, 'Trade saved')
+    await mem.unroute('**/rest/v1/trades*')
+    expect(bodies.length === 2, `inserts sent: ${bodies.length}`)
+    expect('client_request_id' in bodies[0] && !('client_request_id' in bodies[1]), JSON.stringify(bodies))
+    await mem.getByRole('button', { name: 'Void this trade' }).first().click()
+    await mem.getByLabel('Reason (required)').fill('Fallback check')
+    await mem.getByRole('dialog').getByRole('button', { name: 'Void trade' }).click()
+    await success(mem, 'Trade voided')
+    await mem.goto(`${APP}/trades`)
+    await mark(mem)
+  })
+
   await step('void → struck through, cash restored, "Trade voided"', async () => {
     await mem.getByRole('button', { name: 'Void this trade' }).first().click()
     await mem.getByLabel('Reason (required)').fill('Test void')
