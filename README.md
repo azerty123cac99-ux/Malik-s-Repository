@@ -24,6 +24,8 @@ npm run screenshots     # (after seed:demo) screenshots of every screen into tes
 
 Deploying: see [docs/SETUP.md](docs/SETUP.md).
 
+Claude Code cloud sessions: paste `scripts/setup-ecc.sh` into the environment's Setup script so the ECC plugin loads in every session.
+
 ## Layout
 
 - `supabase/migrations/` : database tables and privacy rules (RLS), in order
