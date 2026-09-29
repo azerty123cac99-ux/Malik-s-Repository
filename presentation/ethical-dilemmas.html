@@ -154,8 +154,8 @@ p, li { font-size: var(--body-size); line-height: 1.45; }
 .sources li strong { color: var(--ink); }
 
 /* Reveal animation */
-.reveal { opacity: 0; transform: translateY(18px); transition: opacity 0.6s ease, transform 0.6s cubic-bezier(.2,.7,.2,1); }
-.slide.visible .reveal { opacity: 1; transform: none; }
+.js .reveal { opacity: 0; transform: translateY(18px); transition: opacity 0.6s ease, transform 0.6s cubic-bezier(.2,.7,.2,1); }
+.js .slide.visible .reveal { opacity: 1; transform: none; }
 .slide.visible .reveal:nth-child(2) { transition-delay: 0.08s; }
 .slide.visible .reveal:nth-child(3) { transition-delay: 0.16s; }
 .slide.visible .reveal:nth-child(4) { transition-delay: 0.24s; }
@@ -186,85 +186,10 @@ p, li { font-size: var(--body-size); line-height: 1.45; }
 </head>
 <body>
 <div class="progress" aria-hidden="true"></div>
-<main id="deck" aria-label="Ethical Dilemmas presentation"></main>
-<nav class="nav-dots" aria-label="Slide navigation"></nav>
-<div class="counter" aria-live="polite"></div>
-<div class="keyboard-hint">← → or scroll</div>
-
-<script>
-/* ===========================================
-   CONTENT: edit case data here
-   =========================================== */
-const CASES = [
-  { n: 5, co: "Amazon", title: "Warehouse Workers & Safety Reporting", year: "2023",
-    summary: [
-      "Workers and labor advocates raised concerns about injuries, fast production quotas, and work pace.",
-      "OSHA cited several Amazon warehouses (2022–23) for ergonomic hazards; a 2024 Senate HELP Committee report criticized injury rates. Amazon disputes these findings.",
-      "Workers faced a choice: report hazards, or stay silent to protect hours, evaluations, and jobs."
-    ],
-    type: "Nonrole",
-    typeWhy: "The conflict comes from personal circumstances, not a job duty: an individual weighing coworker safety against their own income. Frameworks: rights-based (right to a safe workplace) and utilitarian (fewer injuries overall).",
-    stake: [["Warehouse workers","Injury risk, job security"],["Coworkers & supervisors","Peer pressure, quota targets"],["Amazon management","Productivity vs. safety"],["Customers","Expect fast delivery"],["Shareholders","Costs and reputation"],["OSHA / regulators","Enforce safety law"]],
-    impact: [["Legal","OSHA citations, fines, workers' comp costs, and turnover that raises training costs."],["Brand","Media and Senate scrutiny hurt hiring and customer trust."],["Operations","Injured or burned-out workers reduce output; organizing efforts grow."]],
-    sols: [["Anonymous, no-retaliation reporting","Third-party hotline and written anti-retaliation policy; safety data reported to the board."],["Safety-adjusted metrics","Remove injury reports from productivity scoring; slow rates when hazards are flagged."],["Independent safety audits","External ergonomic audits with public results and correction deadlines."]],
-    best: "Anonymous reporting plus safety-adjusted metrics. It removes the forced choice between safety and employment, which is the root of the dilemma, and it is fast and cheap to start."
-  },
-  { n: 6, co: "Wells Fargo", title: "Unauthorized Accounts Scandal", year: "2023–2024",
-    summary: [
-      "Employees opened accounts and enrolled customers in products without permission to hit aggressive sales targets.",
-      "Regulators (CFPB, OCC, Federal Reserve, DOJ, SEC) fined the bank billions; in 2018 the Fed capped its asset growth until reforms were made.",
-      "Thousands of employees were fired; customers paid fees and suffered credit damage."
-    ],
-    type: "Role Distortion",
-    typeWhy: "The job is to serve customers with suitable products. Quotas and bonuses redefined “good service” as “accounts sold.” Frameworks: duty-based (honesty, consent) and justice ethics (customers bore the harm).",
-    stake: [["Customers","Fees, credit damage, lost trust"],["Frontline employees","Pressure, firings, fear"],["Managers & executives","Set targets and culture"],["Board & shareholders","Losses, governance"],["Regulators","CFPB, OCC, Fed, DOJ"],["Ethics-line reporters","Risked retaliation"]],
-    impact: [["Financial","Multi-billion-dollar penalties, customer refunds, and legal costs."],["Regulatory","Asset cap, leadership turnover, and mandated governance reforms."],["Brand","Lost customer trust and years of reputation rebuilding."]],
-    sols: [["Redesign incentives","Replace quotas with satisfaction, retention, and quality metrics; claw back bonuses for misconduct."],["Verify customer consent","Digital consent for every new account; audit unusual account-opening patterns."],["Protect ethics-line reporters","Independent hotline reporting to the board with enforced anti-retaliation."]],
-    best: "Redesign the incentives. The misconduct came from the reward system, so controls and hotlines alone only treat symptoms. Pair it with digital consent checks."
-  },
-  { n: 7, co: "Boeing", title: "Whistleblowers & Safety Concerns", year: "2024",
-    summary: [
-      "Employees such as John Barnett and Sam Salehpour raised concerns about manufacturing and quality control.",
-      "After the January 2024 Alaska Airlines door-plug blowout, scrutiny grew. Barnett died in March 2024 (ruled a suicide) before finishing testimony in his retaliation case.",
-      "Whistleblowers testified to the Senate; the FAA and Congress investigated."
-    ],
-    type: "Role Assertion",
-    typeWhy: "Employees acted beyond their job descriptions to protect passengers, risking careers, legal costs, and well-being. Frameworks: duty-based (protect the public) and virtue ethics (courage, integrity).",
-    stake: [["Whistleblowers","Retaliation, stress, legal costs"],["Passengers & crews","Physical safety"],["Boeing leadership","Reputation, liability"],["Airlines & suppliers","Groundings, delays"],["FAA & Congress","Oversight duty"],["Shareholders","Value and trust"]],
-    impact: [["Regulatory","FAA production cap on the 737 MAX, audits, investigations, and hearings."],["Financial","Delivery delays, cash burn, legal exposure, and CEO turnover in 2024."],["Culture","Safety culture questioned; retaliation claims discourage future reporting."]],
-    sols: [["Independent speak-up system","Confidential channel to a board safety committee with tracked responses and deadlines."],["Enforced anti-retaliation","Fast, neutral review of claims; discipline managers who retaliate; legal support for reporters."],["Safety in executive pay","Tie bonuses to quality and safety indicators, not just deliveries."]],
-    best: "An independent speak-up system with enforced anti-retaliation protection. Credible internal reporting means employees needn't go to regulators or media first, and structured review screens out unsupported claims."
-  },
-  { n: 8, co: "Meta", title: "Employees & AI Projects", year: "2024",
-    summary: [
-      "Tech employees, including at Meta, voiced concerns about AI misinformation, discrimination, privacy, and misuse of generative AI.",
-      "Examples: using public posts to train AI, which drew European regulator attention in 2024, and internal AI chatbot guidelines criticized in 2025.",
-      "Individuals had to choose: keep working, request safeguards, raise concerns, transfer, or leave."
-    ],
-    type: "Nonrole",
-    typeWhy: "Employees rarely make the final call; the conflict is personal conscience versus contributing to a project with both benefits and risks. Frameworks: virtue ethics (integrity) and utilitarian (benefits vs. harms).",
-    stake: [["Meta employees","Conscience vs. career"],["Users & minors","Privacy, safety, misinformation"],["Meta leadership","Speed vs. safeguards"],["Shareholders","AI investment returns"],["Regulators","Privacy and AI laws"],["Society","Trust in information"]],
-    impact: [["Regulatory","Privacy investigations and pressure from AI and child-safety laws."],["Talent","Unaddressed concerns lead to attrition and leaks."],["Brand","AI incidents quickly erode user and advertiser trust."]],
-    sols: [["Internal AI ethics review","Cross-functional board must approve high-risk launches with documented risk assessments."],["Conscientious objection policy","Employees can transfer off objectionable projects without penalty."],["Transparent safety reporting","Publish model cards, red-team results, and known limits."]],
-    best: "An internal AI ethics review with a conscientious-objection option. It gives employees a real voice inside the company, which does more than leaving, and reduces harm before launch."
-  }
-];
-
-/* ===========================================
-   SLIDE TEMPLATES
-   =========================================== */
-const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
-const slide = (inner, num = "") =>
-  `<section class="slide">${num ? `<div class="bignum decorative" aria-hidden="true">${num}</div>` : ""}<div class="slide-content"><div class="wrap">${inner}</div></div></section>`;
-
-let html = "";
-
-html += slide(`
+<main id="deck" aria-label="Ethical Dilemmas presentation"><section class="slide"><div class="slide-content"><div class="wrap">
   <div class="kicker reveal">Group Presentation · Cases 5–8</div>
   <h1 class="reveal">Ethical Dilemmas<br>in Modern Business</h1>
-  <p class="sub reveal">Amazon · Wells Fargo · Boeing Whistleblowers · Meta</p>`);
-
-html += slide(`
+  <p class="sub reveal">Amazon · Wells Fargo · Boeing Whistleblowers · Meta</p></div></div></section><section class="slide"><div class="slide-content"><div class="wrap">
   <div class="kicker reveal">Our Lens</div>
   <h2 class="reveal">Four types of ethical dilemmas</h2>
   <div class="grid types">
@@ -272,45 +197,87 @@ html += slide(`
     <div class="card reveal"><h3>Role Failure</h3><p>A clearly defined duty, such as safety, risk, or accuracy, goes unfulfilled.</p><div class="case">Not among our cases</div></div>
     <div class="card reveal"><h3>Role Distortion</h3><p>Legitimate duties are twisted by incentives, pressure, or culture.</p><div class="case">Case 6 Wells Fargo</div></div>
     <div class="card reveal"><h3>Role Assertion</h3><p>Acting on ethical duties beyond the formal job, at personal risk.</p><div class="case">Case 7 Boeing</div></div>
-  </div>`);
-
-CASES.forEach(c => {
-  const k = `Case ${c.n} · ${c.co} · ${c.year}`;
-
-  // 1 + 2: summary and type
-  html += slide(`
-    <div class="kicker reveal">${k}</div>
-    <h2 class="reveal">${esc(c.title)}</h2>
+  </div></div></div></section><section class="slide"><div class="bignum decorative" aria-hidden="true">5</div><div class="slide-content"><div class="wrap">
+    <div class="kicker reveal">Case 5 · Amazon · 2023</div>
+    <h2 class="reveal">Warehouse Workers &amp; Safety Reporting</h2>
     <div class="split">
-      <ul class="bullets reveal">${c.summary.map(s => `<li>${esc(s)}</li>`).join("")}</ul>
+      <ul class="bullets reveal"><li>Workers and labor advocates raised concerns about injuries, fast production quotas, and work pace.</li><li>OSHA cited several Amazon warehouses (2022–23) for ergonomic hazards; a 2024 Senate HELP Committee report criticized injury rates. Amazon disputes these findings.</li><li>Workers faced a choice: report hazards, or stay silent to protect hours, evaluations, and jobs.</li></ul>
       <div class="focal reveal">
         <div class="label">Type of ethical issue</div>
-        <div class="type">${c.type}</div>
-        <p>${esc(c.typeWhy)}</p>
+        <div class="type">Nonrole</div>
+        <p>The conflict comes from personal circumstances, not a job duty: an individual weighing coworker safety against their own income. Frameworks: rights-based (right to a safe workplace) and utilitarian (fewer injuries overall).</p>
       </div>
-    </div>`, c.n);
-
-  // 3: stakeholders
-  html += slide(`
-    <div class="kicker reveal">${k}</div>
+    </div></div></div></section><section class="slide"><div class="bignum decorative" aria-hidden="true">5</div><div class="slide-content"><div class="wrap">
+    <div class="kicker reveal">Case 5 · Amazon · 2023</div>
     <h2 class="reveal">Who is affected?</h2>
-    <div class="grid six">${c.stake.map(s => `<div class="card reveal"><h3>${esc(s[0])}</h3><p>${esc(s[1])}</p></div>`).join("")}</div>`, c.n);
-
-  // 4: impact on the company
-  html += slide(`
-    <div class="kicker reveal">${k}</div>
-    <h2 class="reveal">Impact on ${c.co}</h2>
-    <div>${c.impact.map(i => `<div class="impact-row reveal"><div class="tag">${i[0]}</div><p>${esc(i[1])}</p></div>`).join("")}</div>`, c.n);
-
-  // 5 + 6: solutions and best
-  html += slide(`
-    <div class="kicker reveal">${k}</div>
+    <div class="grid six"><div class="card reveal"><h3>Warehouse workers</h3><p>Injury risk, job security</p></div><div class="card reveal"><h3>Coworkers &amp; supervisors</h3><p>Peer pressure, quota targets</p></div><div class="card reveal"><h3>Amazon management</h3><p>Productivity vs. safety</p></div><div class="card reveal"><h3>Customers</h3><p>Expect fast delivery</p></div><div class="card reveal"><h3>Shareholders</h3><p>Costs and reputation</p></div><div class="card reveal"><h3>OSHA / regulators</h3><p>Enforce safety law</p></div></div></div></div></section><section class="slide"><div class="bignum decorative" aria-hidden="true">5</div><div class="slide-content"><div class="wrap">
+    <div class="kicker reveal">Case 5 · Amazon · 2023</div>
+    <h2 class="reveal">Impact on Amazon</h2>
+    <div><div class="impact-row reveal"><div class="tag">Legal</div><p>OSHA citations, fines, workers' comp costs, and turnover that raises training costs.</p></div><div class="impact-row reveal"><div class="tag">Brand</div><p>Media and Senate scrutiny hurt hiring and customer trust.</p></div><div class="impact-row reveal"><div class="tag">Operations</div><p>Injured or burned-out workers reduce output; organizing efforts grow.</p></div></div></div></div></section><section class="slide"><div class="bignum decorative" aria-hidden="true">5</div><div class="slide-content"><div class="wrap">
+    <div class="kicker reveal">Case 5 · Amazon · 2023</div>
     <h2 class="reveal">Possible solutions</h2>
-    <div class="grid three">${c.sols.map((s, i) => `<div class="card reveal"><div class="n">0${i + 1}</div><h3>${esc(s[0])}</h3><p>${esc(s[1])}</p></div>`).join("")}</div>
-    <div class="best reveal"><div class="label">Our best solution</div><p>${esc(c.best)}</p></div>`, c.n);
-});
-
-html += slide(`
+    <div class="grid three"><div class="card reveal"><div class="n">01</div><h3>Anonymous, no-retaliation reporting</h3><p>Third-party hotline and written anti-retaliation policy; safety data reported to the board.</p></div><div class="card reveal"><div class="n">02</div><h3>Safety-adjusted metrics</h3><p>Remove injury reports from productivity scoring; slow rates when hazards are flagged.</p></div><div class="card reveal"><div class="n">03</div><h3>Independent safety audits</h3><p>External ergonomic audits with public results and correction deadlines.</p></div></div>
+    <div class="best reveal"><div class="label">Our best solution</div><p>Anonymous reporting plus safety-adjusted metrics. It removes the forced choice between safety and employment, which is the root of the dilemma, and it is fast and cheap to start.</p></div></div></div></section><section class="slide"><div class="bignum decorative" aria-hidden="true">6</div><div class="slide-content"><div class="wrap">
+    <div class="kicker reveal">Case 6 · Wells Fargo · 2023–2024</div>
+    <h2 class="reveal">Unauthorized Accounts Scandal</h2>
+    <div class="split">
+      <ul class="bullets reveal"><li>Employees opened accounts and enrolled customers in products without permission to hit aggressive sales targets.</li><li>Regulators (CFPB, OCC, Federal Reserve, DOJ, SEC) fined the bank billions; in 2018 the Fed capped its asset growth until reforms were made.</li><li>Thousands of employees were fired; customers paid fees and suffered credit damage.</li></ul>
+      <div class="focal reveal">
+        <div class="label">Type of ethical issue</div>
+        <div class="type">Role Distortion</div>
+        <p>The job is to serve customers with suitable products. Quotas and bonuses redefined “good service” as “accounts sold.” Frameworks: duty-based (honesty, consent) and justice ethics (customers bore the harm).</p>
+      </div>
+    </div></div></div></section><section class="slide"><div class="bignum decorative" aria-hidden="true">6</div><div class="slide-content"><div class="wrap">
+    <div class="kicker reveal">Case 6 · Wells Fargo · 2023–2024</div>
+    <h2 class="reveal">Who is affected?</h2>
+    <div class="grid six"><div class="card reveal"><h3>Customers</h3><p>Fees, credit damage, lost trust</p></div><div class="card reveal"><h3>Frontline employees</h3><p>Pressure, firings, fear</p></div><div class="card reveal"><h3>Managers &amp; executives</h3><p>Set targets and culture</p></div><div class="card reveal"><h3>Board &amp; shareholders</h3><p>Losses, governance</p></div><div class="card reveal"><h3>Regulators</h3><p>CFPB, OCC, Fed, DOJ</p></div><div class="card reveal"><h3>Ethics-line reporters</h3><p>Risked retaliation</p></div></div></div></div></section><section class="slide"><div class="bignum decorative" aria-hidden="true">6</div><div class="slide-content"><div class="wrap">
+    <div class="kicker reveal">Case 6 · Wells Fargo · 2023–2024</div>
+    <h2 class="reveal">Impact on Wells Fargo</h2>
+    <div><div class="impact-row reveal"><div class="tag">Financial</div><p>Multi-billion-dollar penalties, customer refunds, and legal costs.</p></div><div class="impact-row reveal"><div class="tag">Regulatory</div><p>Asset cap, leadership turnover, and mandated governance reforms.</p></div><div class="impact-row reveal"><div class="tag">Brand</div><p>Lost customer trust and years of reputation rebuilding.</p></div></div></div></div></section><section class="slide"><div class="bignum decorative" aria-hidden="true">6</div><div class="slide-content"><div class="wrap">
+    <div class="kicker reveal">Case 6 · Wells Fargo · 2023–2024</div>
+    <h2 class="reveal">Possible solutions</h2>
+    <div class="grid three"><div class="card reveal"><div class="n">01</div><h3>Redesign incentives</h3><p>Replace quotas with satisfaction, retention, and quality metrics; claw back bonuses for misconduct.</p></div><div class="card reveal"><div class="n">02</div><h3>Verify customer consent</h3><p>Digital consent for every new account; audit unusual account-opening patterns.</p></div><div class="card reveal"><div class="n">03</div><h3>Protect ethics-line reporters</h3><p>Independent hotline reporting to the board with enforced anti-retaliation.</p></div></div>
+    <div class="best reveal"><div class="label">Our best solution</div><p>Redesign the incentives. The misconduct came from the reward system, so controls and hotlines alone only treat symptoms. Pair it with digital consent checks.</p></div></div></div></section><section class="slide"><div class="bignum decorative" aria-hidden="true">7</div><div class="slide-content"><div class="wrap">
+    <div class="kicker reveal">Case 7 · Boeing · 2024</div>
+    <h2 class="reveal">Whistleblowers &amp; Safety Concerns</h2>
+    <div class="split">
+      <ul class="bullets reveal"><li>Employees such as John Barnett and Sam Salehpour raised concerns about manufacturing and quality control.</li><li>After the January 2024 Alaska Airlines door-plug blowout, scrutiny grew. Barnett died in March 2024 (ruled a suicide) before finishing testimony in his retaliation case.</li><li>Whistleblowers testified to the Senate; the FAA and Congress investigated.</li></ul>
+      <div class="focal reveal">
+        <div class="label">Type of ethical issue</div>
+        <div class="type">Role Assertion</div>
+        <p>Employees acted beyond their job descriptions to protect passengers, risking careers, legal costs, and well-being. Frameworks: duty-based (protect the public) and virtue ethics (courage, integrity).</p>
+      </div>
+    </div></div></div></section><section class="slide"><div class="bignum decorative" aria-hidden="true">7</div><div class="slide-content"><div class="wrap">
+    <div class="kicker reveal">Case 7 · Boeing · 2024</div>
+    <h2 class="reveal">Who is affected?</h2>
+    <div class="grid six"><div class="card reveal"><h3>Whistleblowers</h3><p>Retaliation, stress, legal costs</p></div><div class="card reveal"><h3>Passengers &amp; crews</h3><p>Physical safety</p></div><div class="card reveal"><h3>Boeing leadership</h3><p>Reputation, liability</p></div><div class="card reveal"><h3>Airlines &amp; suppliers</h3><p>Groundings, delays</p></div><div class="card reveal"><h3>FAA &amp; Congress</h3><p>Oversight duty</p></div><div class="card reveal"><h3>Shareholders</h3><p>Value and trust</p></div></div></div></div></section><section class="slide"><div class="bignum decorative" aria-hidden="true">7</div><div class="slide-content"><div class="wrap">
+    <div class="kicker reveal">Case 7 · Boeing · 2024</div>
+    <h2 class="reveal">Impact on Boeing</h2>
+    <div><div class="impact-row reveal"><div class="tag">Regulatory</div><p>FAA production cap on the 737 MAX, audits, investigations, and hearings.</p></div><div class="impact-row reveal"><div class="tag">Financial</div><p>Delivery delays, cash burn, legal exposure, and CEO turnover in 2024.</p></div><div class="impact-row reveal"><div class="tag">Culture</div><p>Safety culture questioned; retaliation claims discourage future reporting.</p></div></div></div></div></section><section class="slide"><div class="bignum decorative" aria-hidden="true">7</div><div class="slide-content"><div class="wrap">
+    <div class="kicker reveal">Case 7 · Boeing · 2024</div>
+    <h2 class="reveal">Possible solutions</h2>
+    <div class="grid three"><div class="card reveal"><div class="n">01</div><h3>Independent speak-up system</h3><p>Confidential channel to a board safety committee with tracked responses and deadlines.</p></div><div class="card reveal"><div class="n">02</div><h3>Enforced anti-retaliation</h3><p>Fast, neutral review of claims; discipline managers who retaliate; legal support for reporters.</p></div><div class="card reveal"><div class="n">03</div><h3>Safety in executive pay</h3><p>Tie bonuses to quality and safety indicators, not just deliveries.</p></div></div>
+    <div class="best reveal"><div class="label">Our best solution</div><p>An independent speak-up system with enforced anti-retaliation protection. Credible internal reporting means employees needn't go to regulators or media first, and structured review screens out unsupported claims.</p></div></div></div></section><section class="slide"><div class="bignum decorative" aria-hidden="true">8</div><div class="slide-content"><div class="wrap">
+    <div class="kicker reveal">Case 8 · Meta · 2024</div>
+    <h2 class="reveal">Employees &amp; AI Projects</h2>
+    <div class="split">
+      <ul class="bullets reveal"><li>Tech employees, including at Meta, voiced concerns about AI misinformation, discrimination, privacy, and misuse of generative AI.</li><li>Examples: using public posts to train AI, which drew European regulator attention in 2024, and internal AI chatbot guidelines criticized in 2025.</li><li>Individuals had to choose: keep working, request safeguards, raise concerns, transfer, or leave.</li></ul>
+      <div class="focal reveal">
+        <div class="label">Type of ethical issue</div>
+        <div class="type">Nonrole</div>
+        <p>Employees rarely make the final call; the conflict is personal conscience versus contributing to a project with both benefits and risks. Frameworks: virtue ethics (integrity) and utilitarian (benefits vs. harms).</p>
+      </div>
+    </div></div></div></section><section class="slide"><div class="bignum decorative" aria-hidden="true">8</div><div class="slide-content"><div class="wrap">
+    <div class="kicker reveal">Case 8 · Meta · 2024</div>
+    <h2 class="reveal">Who is affected?</h2>
+    <div class="grid six"><div class="card reveal"><h3>Meta employees</h3><p>Conscience vs. career</p></div><div class="card reveal"><h3>Users &amp; minors</h3><p>Privacy, safety, misinformation</p></div><div class="card reveal"><h3>Meta leadership</h3><p>Speed vs. safeguards</p></div><div class="card reveal"><h3>Shareholders</h3><p>AI investment returns</p></div><div class="card reveal"><h3>Regulators</h3><p>Privacy and AI laws</p></div><div class="card reveal"><h3>Society</h3><p>Trust in information</p></div></div></div></div></section><section class="slide"><div class="bignum decorative" aria-hidden="true">8</div><div class="slide-content"><div class="wrap">
+    <div class="kicker reveal">Case 8 · Meta · 2024</div>
+    <h2 class="reveal">Impact on Meta</h2>
+    <div><div class="impact-row reveal"><div class="tag">Regulatory</div><p>Privacy investigations and pressure from AI and child-safety laws.</p></div><div class="impact-row reveal"><div class="tag">Talent</div><p>Unaddressed concerns lead to attrition and leaks.</p></div><div class="impact-row reveal"><div class="tag">Brand</div><p>AI incidents quickly erode user and advertiser trust.</p></div></div></div></div></section><section class="slide"><div class="bignum decorative" aria-hidden="true">8</div><div class="slide-content"><div class="wrap">
+    <div class="kicker reveal">Case 8 · Meta · 2024</div>
+    <h2 class="reveal">Possible solutions</h2>
+    <div class="grid three"><div class="card reveal"><div class="n">01</div><h3>Internal AI ethics review</h3><p>Cross-functional board must approve high-risk launches with documented risk assessments.</p></div><div class="card reveal"><div class="n">02</div><h3>Conscientious objection policy</h3><p>Employees can transfer off objectionable projects without penalty.</p></div><div class="card reveal"><div class="n">03</div><h3>Transparent safety reporting</h3><p>Publish model cards, red-team results, and known limits.</p></div></div>
+    <div class="best reveal"><div class="label">Our best solution</div><p>An internal AI ethics review with a conscientious-objection option. It gives employees a real voice inside the company, which does more than leaving, and reduces harm before launch.</p></div></div></div></section><section class="slide"><div class="slide-content"><div class="wrap">
   <div class="kicker reveal">References</div>
   <h2 class="reveal">Sources</h2>
   <ul class="bullets sources reveal">
@@ -319,9 +286,14 @@ html += slide(`
     <li><strong>Boeing:</strong> Senate Permanent Subcommittee on Investigations hearing (April 2024); FAA investigation of Alaska Airlines Flight 1282; FAA expert panel on safety culture (Feb 2024)</li>
     <li><strong>Meta:</strong> Irish Data Protection Commission and Reuters reporting on AI data use and chatbot guidelines</li>
     <li>Ongoing matters may have changed; verify current status before presenting.</li>
-  </ul>`);
+  </ul></div></div></section>
+</main>
+<nav class="nav-dots" aria-label="Slide navigation"></nav>
+<div class="counter" aria-live="polite"></div>
+<div class="keyboard-hint">← → or scroll</div>
 
-document.getElementById("deck").innerHTML = html;
+<script>
+document.documentElement.classList.add("js");
 
 /* ===========================================
    PRESENTATION CONTROLLER
